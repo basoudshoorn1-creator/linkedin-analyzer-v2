@@ -822,7 +822,7 @@ elif step == 7:
     with k4: st.markdown(kpi("Best day",best_day,"based on your post history"),unsafe_allow_html=True)
     st.markdown("---")
 
-    tab_names = ["💡 Insights","📊 Content","🔬 Post Funnel","🧠 AI Strategy Check","📋 How did my posts do?","✏️ Is this ready to post?"]
+    tab_names = ["💡 Insights","📊 Content","✏️ Write a post"]
     if fol_growth is not None: tab_names.append("👥 Followers")
     if vis_data is not None: tab_names.append("👁 Visitors")
     if df_comp is not None: tab_names.append("🏆 Competitors")
@@ -831,10 +831,9 @@ elif step == 7:
 
     # ── INSIGHTS ──────────────────────────────────────────────────────────────
     with tm["💡 Insights"]:
-        st.markdown("#### Here's what the data shows.")
-        st.markdown("Six insights based on your LinkedIn data — no charts required.")
         st.markdown("")
 
+        # ── DATA ──────────────────────────────────────────────────────────────
         day_data = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)]
         day_eng = day_data.groupby("Day").agg(G=("Engagement_pct", agg_fn if use_median else "mean"), cnt=("Engagement_pct","count")).reset_index()
         day_eng = day_eng[day_eng["cnt"] >= 3]
@@ -856,37 +855,143 @@ elif step == 7:
         best_type_score = type_eng.iloc[0] if len(type_eng)>0 else 0
         top_post = df_posts.nlargest(1,"Weergaven").iloc[0] if len(df_posts)>0 else None
 
+        funnel_df = df_posts[df_posts["Weergaven"] > 0].copy()
+        funnel_df["CTR_pct"] = (funnel_df["Klikken"] / funnel_df["Weergaven"] * 100).round(3)
+        funnel_df["Engagement_actions"] = funnel_df["Interessant"] + funnel_df["Commentaren"] + funnel_df["Reposts"]
+        avg_ctr = agg_fn(funnel_df["CTR_pct"])
+        total_clicks_ins = int(funnel_df["Klikken"].sum())
+        total_views_ins  = int(funnel_df["Weergaven"].sum())
+        overall_ctr_ins  = (total_clicks_ins / total_views_ins * 100) if total_views_ins > 0 else 0
+        high_reach_low_ctr = funnel_df[
+            (funnel_df["Weergaven"] > funnel_df["Weergaven"].quantile(0.6)) &
+            (funnel_df["CTR_pct"] < avg_ctr)
+        ]
+        best_converter = funnel_df[funnel_df["Klikken"] > 0].sort_values("CTR_pct", ascending=False)
+        best_converter = best_converter.iloc[0] if len(best_converter) > 0 else None
+
+        # ── INSIGHT CARDS ─────────────────────────────────────────────────────
         cards = []
-        # 1. Engagement
+
+        # 1. Engagement vs benchmark
         if evb >= 0:
-            cards.append(insight_card("📈","Engagement",f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{abs(evb):.1f} percentage points above</strong> the {sector} benchmark of {bench_eng}% (that is <strong>{evb_rel:.0f}% better</strong> than average). Your content is resonating well with your audience.","good"))
+            cards.append(("good", "📈", "Engagement",
+                f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
+                f"<strong>{abs(evb):.1f}pp above</strong> the {sector} benchmark of {bench_eng}% "
+                f"(<strong>{evb_rel:.0f}% better</strong> than average)."))
         else:
-            cards.append(insight_card("📉","Engagement",f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{abs(evb):.1f} percentage points below</strong> the {sector} benchmark of {bench_eng}% ({abs(evb_rel):.0f}% below average). There is room to improve how your content connects with your audience.","warn"))
-        # 2. Best day
+            cards.append(("warn", "📉", "Engagement",
+                f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
+                f"<strong>{abs(evb):.1f}pp below</strong> the {sector} benchmark of {bench_eng}% "
+                f"({abs(evb_rel):.0f}% below average). There is room to improve how your content connects with your audience."))
+
+        # 2. Funnel: reach vs action
+        cards.append(("warn" if len(high_reach_low_ctr) > 2 else "good", "🎯", "Reach vs. action",
+            f"Your content reached <strong>{total_views_ins:,} views</strong> and generated "
+            f"<strong>{total_clicks_ins:,} clicks</strong> — an overall click rate of "
+            f"<strong>{overall_ctr_ins:.2f}%</strong>. "
+            f"<strong>{len(high_reach_low_ctr)} post{'s' if len(high_reach_low_ctr)!=1 else ''}</strong> "
+            f"had high reach but below-average click-through. "
+            + ("Your best converter: <em>\"" + str(best_converter["Title_short"]) + "\"</em> at <strong>" + f"{best_converter['CTR_pct']:.2f}% CTR</strong>." if best_converter is not None else "")
+        ).replace(",","."))
+
+        # 3. Best day
         if best_day_ins != "—":
-            cards.append(insight_card("📅","Best day to post",f"<strong>{best_day_ins}</strong> is your strongest day with a {agg_label.lower()} engagement of <strong>{best_day_score:.1f}%</strong>. Only <strong>{pct_on_best:.0f}%</strong> of your posts go out on that day. Shifting more of your key content to {best_day_ins} could meaningfully lift your results.","good" if pct_on_best>=20 else "warn"))
-        # 3. Frequency
-        freq_msg = "On track - consistency is one of the biggest drivers of LinkedIn reach." if freq_ok else "Posting more consistently could significantly improve your organic reach."
-        cards.append(insight_card("🗓️","Posting frequency",f"You are posting <strong>{ppw:.1f} times per week</strong>. The benchmark for {sector} is <strong>{bench['frequency']}</strong>. {freq_msg}","good" if freq_ok else "warn"))
-        # 4. Reach trend
+            cards.append(("good" if pct_on_best>=20 else "warn", "📅", "Best day to post",
+                f"<strong>{best_day_ins}</strong> is your strongest day — {agg_label.lower()} engagement "
+                f"of <strong>{best_day_score:.1f}%</strong>. Only <strong>{pct_on_best:.0f}%</strong> "
+                f"of your posts go live on that day. Posting more on {best_day_ins} could lift your results."))
+
+        # 4. Frequency
+        freq_msg = "Consistency is one of the biggest drivers of LinkedIn reach — keep it up." if freq_ok else "Posting more consistently could significantly improve your organic reach."
+        cards.append(("good" if freq_ok else "warn", "🗓️", "Posting frequency",
+            f"You are posting <strong>{ppw:.1f}x per week</strong>. "
+            f"The benchmark for {sector} is <strong>{bench['frequency']}</strong>. {freq_msg}"))
+
+        # 5. Reach trend
         if reach_drop > 30:
-            cards.append(insight_card("⚠️","Reach trend",f"Your reach has dropped <strong>{reach_drop:.0f}%</strong> from its peak. This often signals a dip in posting consistency or a shift in content type. Check your recent posts against your top performers.","bad"))
+            cards.append(("bad", "⚠️", "Reach trend",
+                f"Your reach has dropped <strong>{reach_drop:.0f}%</strong> from its peak. "
+                "This often signals a dip in posting consistency or a shift in content type. "
+                "Check your recent posts against your top performers."))
         elif trend_up:
-            cards.append(insight_card("📊","Reach trend","Your reach is trending <strong>upward</strong> compared to last month. Keep the momentum going — consistency now will compound over the coming weeks.","good"))
+            cards.append(("good", "📊", "Reach trend",
+                "Your reach is trending <strong>upward</strong> compared to last month. "
+                "Keep the momentum going — consistency now will compound over the coming weeks."))
         else:
-            cards.append(insight_card("📊","Reach trend","Your reach has been relatively stable. To break into higher reach territory, consider experimenting with new content formats or posting on your strongest days more consistently.","neutral"))
-        # 5. Content type
+            cards.append(("neutral", "📊", "Reach trend",
+                "Your reach has been relatively stable. To break into higher reach territory, "
+                "consider experimenting with new content formats or posting on your strongest days more consistently."))
+
+        # 6. Best content type
         if best_type != "—":
-            cards.append(insight_card("✍️","Best content type",f"<strong>{best_type}</strong> posts generate your highest {agg_label.lower()} engagement at <strong>{best_type_score:.1f}%</strong>. If you are not already leaning into this format, it is worth doing more of it.","good"))
-        # 6. Top post
-        if top_post is not None:
-            tv = f"{int(top_post['Weergaven']):,}".replace(",",".")
-            cards.append(insight_card("🏆","Your best post",f"Your top post reached <strong>{tv} views</strong>: <em>{top_post['Title_short']}...</em> Study what made it work and try to replicate the format, topic, or opening line.","good"))
+            cards.append(("good", "✍️", "Best content type",
+                f"<strong>{best_type}</strong> posts generate your highest {agg_label.lower()} engagement "
+                f"at <strong>{best_type_score:.1f}%</strong>. If you are not leaning into this format already, it is worth doing more of it."))
 
-        for card in cards[:6]:
-            st.markdown(card, unsafe_allow_html=True)
+        # ── RENDER CARDS ──────────────────────────────────────────────────────
+        STATUS_COLOR = {"good": "#057642", "warn": "#B45309", "bad": "#C0392B", "neutral": "#4A5568"}
+        STATUS_BG    = {"good": "#F0FDF4", "warn": "#FFFBEB", "bad": "#FEF2F2", "neutral": "#F8F9FA"}
+        STATUS_BORDER= {"good": "#BBF7D0", "warn": "#FDE68A", "bad": "#FECACA", "neutral": "#E2E8F0"}
 
-    # ── CONTENT ───────────────────────────────────────────────────────────────
+        col1, col2 = st.columns(2)
+        for i, (status, icon, title, text) in enumerate(cards):
+            col = col1 if i % 2 == 0 else col2
+            with col:
+                st.markdown(f'''
+<div style="
+    background:{STATUS_BG[status]};
+    border:1.5px solid {STATUS_BORDER[status]};
+    border-left:4px solid {STATUS_COLOR[status]};
+    border-radius:10px;
+    padding:1rem 1.2rem;
+    margin-bottom:0.9rem;
+">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.4rem;">
+        <span style="font-size:16px;">{icon}</span>
+        <span style="font-weight:700;font-size:13px;color:{STATUS_COLOR[status]};text-transform:uppercase;letter-spacing:0.04em;">{title}</span>
+    </div>
+    <div style="font-size:14px;line-height:1.65;color:#1a1a1a;">{text}</div>
+</div>''', unsafe_allow_html=True)
+
+        # ── AI STRATEGY ───────────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### AI Strategy Analysis")
+        st.markdown("A plain-English read on your data — what's working, where the gaps are, and 5 things to do next.")
+        api_key = st.secrets.get("ANTHROPIC_API_KEY",None)
+        if not api_key:
+            st.warning("AI diagnosis is not available right now.")
+        else:
+            if st.button("Generate AI analysis", type="primary"):
+                with st.spinner("Analysing your data..."):
+                    try:
+                        diag = ai_diag(df_posts,df_stats,sector,bench_eng,api_key)
+                        st.session_state.diagnosis = diag
+                    except Exception as e:
+                        st.error(f"Something went wrong: {e}")
+        if "diagnosis" in st.session_state:
+            raw = re.sub(r"#{1,6}\s*","",st.session_state.diagnosis)
+            raw = re.sub(r"\*?\*?PART\s+\d+[^\n]*\*?\*?\n?","",raw).strip()
+            if "---ACTIONS---" in raw:
+                diag_part, actions_part = raw.split("---ACTIONS---",1)
+                st.markdown(f'<div class="ai-box">{diag_part.strip()}</div>', unsafe_allow_html=True)
+                st.markdown("**5 ways to improve your LinkedIn**")
+                actions_html = ""
+                for line in actions_part.strip().splitlines():
+                    line = re.sub(r"#{1,6}\s*","",line.strip())
+                    line = re.sub(r"\*\*(.+?)\*\*",r"<strong>\1</strong>",line)
+                    if line and line[0].isdigit():
+                        if ":" in line:
+                            tp,dp = line.split(":",1)
+                            formatted = f"<strong>{tp}:</strong>{dp}"
+                        else:
+                            formatted = line
+                        actions_html += f'<div style="background:white;border:1.5px solid #e8e2d8;border-radius:10px;padding:0.85rem 1.2rem;margin-bottom:0.5rem;font-size:14px;line-height:1.65;">{formatted}</div>'
+                if actions_html:
+                    st.markdown(actions_html, unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="ai-box">{raw}</div>', unsafe_allow_html=True)
+
+
     with tm["📊 Content"]:
         st.markdown('<p class="section-head">Monthly results</p>', unsafe_allow_html=True)
         mc = st.radio("",["Views","Clicks","Reactions","Engagement %"],horizontal=True,label_visibility="collapsed")
@@ -920,179 +1025,8 @@ elif step == 7:
         with t2: post_table(df_posts[df_posts["Engagement_pct"]>0].sort_values("Engagement_pct",ascending=False).head(10),bench_eng)
 
     # ── POST FUNNEL ───────────────────────────────────────────────────────────
-    with tm["🔬 Post Funnel"]:
-        st.markdown("#### From reach to real action.")
-        st.markdown("High views mean nothing if nobody clicks. This table shows exactly where your posts convert — and where they don't.")
-        st.markdown("")
-
-        funnel_df = df_posts[df_posts["Weergaven"] > 0].copy()
-        funnel_df["CTR_pct"] = (funnel_df["Klikken"] / funnel_df["Weergaven"] * 100).round(3)
-        funnel_df["Engagement_actions"] = funnel_df["Interessant"] + funnel_df["Commentaren"] + funnel_df["Reposts"]
-        funnel_df["Aangemaakt_str"] = funnel_df["Aangemaakt"].dt.strftime("%Y-%m-%d")
-
-        sort_col = st.radio("Sort by", ["CTR (clicks ÷ views)", "Views", "Engagement actions"], horizontal=True)
-        sort_map = {"CTR (clicks ÷ views)": "CTR_pct", "Views": "Weergaven", "Engagement actions": "Engagement_actions"}
-        funnel_sorted = funnel_df.sort_values(sort_map[sort_col], ascending=False).reset_index(drop=True)
-
-        # Funnel summary KPIs
-        avg_ctr = agg_fn(funnel_df["CTR_pct"])
-        total_clicks = int(funnel_df["Klikken"].sum())
-        total_views = int(funnel_df["Weergaven"].sum())
-        high_reach_low_ctr = funnel_df[
-            (funnel_df["Weergaven"] > funnel_df["Weergaven"].quantile(0.6)) &
-            (funnel_df["CTR_pct"] < avg_ctr)
-        ]
-
-        fa, fb, fc, fd = st.columns(4)
-        with fa:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Total views (period)</div><div class="kpi-value">{total_views:,}</div></div>'.replace(",","."), unsafe_allow_html=True)
-        with fb:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Total clicks</div><div class="kpi-value">{total_clicks:,}</div><div class="kpi-benchmark">Avg CTR: {avg_ctr:.2f}%</div></div>'.replace(",","."), unsafe_allow_html=True)
-        with fc:
-            conversion = (total_clicks / total_views * 100) if total_views > 0 else 0
-            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Overall click rate</div><div class="kpi-value">{conversion:.2f}%</div><div class="kpi-benchmark">Clicks ÷ total views</div></div>', unsafe_allow_html=True)
-        with fd:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-label">High reach, low CTR</div><div class="kpi-value">{len(high_reach_low_ctr)}</div><div class="kpi-benchmark">Posts that reached many but converted few</div></div>', unsafe_allow_html=True)
-
-        st.markdown("")
-        st.markdown('<p class="section-head">Post-by-post funnel</p>', unsafe_allow_html=True)
-
-        # Visual funnel table
-        display_cols = ["Title_short", "Aangemaakt_str", "Weergaven", "Klikken", "CTR_pct", "Engagement_actions", "Engagement_pct"]
-        display = funnel_sorted[display_cols].copy()
-        display.columns = ["Post", "Date", "Views", "Clicks", "CTR %", "Actions (likes+comments+reposts)", "Engagement %"]
-        display["Views"] = display["Views"].apply(lambda v: f"{v:,}".replace(",","."))
-        display["Clicks"] = display["Clicks"].apply(lambda v: f"{int(v):,}".replace(",","."))
-        display["CTR %"] = display["CTR %"].apply(lambda v: f"{v:.2f}%")
-        display["Actions (likes+comments+reposts)"] = display["Actions (likes+comments+reposts)"].apply(lambda v: f"{int(v):,}".replace(",","."))
-        display["Engagement %"] = display["Engagement %"].apply(lambda v: f"{v:.2f}%")
-
-        st.dataframe(display, use_container_width=True, hide_index=True)
-
-        # Insight callout
-        if len(high_reach_low_ctr) > 0:
-            worst = high_reach_low_ctr.sort_values("Weergaven", ascending=False).iloc[0]
-            st.markdown(
-                insight_card("⚠️", "Reach without action",
-                    f"<strong>{len(high_reach_low_ctr)} posts</strong> had above-average views but below-average CTR. "
-                    f"Your top example: <em>\"{worst['Title_short']}\"</em> reached "
-                    f"<strong>{int(worst['Weergaven']):,} people</strong> but only generated "
-                    f"<strong>{int(worst['Klikken'])} clicks</strong> ({worst['CTR_pct']:.2f}% CTR). "
-                    "High reach with no action is the definition of a vanity metric.",
-                    "warn"),
-                unsafe_allow_html=True)
-
-        best_ctr_post = funnel_sorted[funnel_sorted["Klikken"] > 0].iloc[0] if len(funnel_sorted[funnel_sorted["Klikken"] > 0]) > 0 else None
-        if best_ctr_post is not None:
-            st.markdown(
-                insight_card("🎯", "Your best converter",
-                    f"<strong>\"{best_ctr_post['Title_short']}\"</strong> had your highest click-through rate at "
-                    f"<strong>{best_ctr_post['CTR_pct']:.2f}%</strong> — "
-                    f"{int(best_ctr_post['Weergaven']):,} views → {int(best_ctr_post['Klikken'])} clicks. "
-                    "Study what made this post drive action and try to replicate it.",
-                    "good"),
-                unsafe_allow_html=True)
-
-        st.caption("CTR = clicks ÷ views. Actions = likes + comments + reposts. Sorted by your chosen metric.")
-
-    
-    with tm["🧠 AI Strategy Check"]:
-        st.markdown("#### What does your data actually mean?")
-        st.markdown("A plain-English read on your LinkedIn performance — what's working, where the opportunities are, and one thing to try next.")
-        api_key = st.secrets.get("ANTHROPIC_API_KEY",None)
-        if not api_key:
-            st.warning("AI diagnosis is not available right now.")
-        else:
-            if st.button("Generate my diagnosis", type="primary"):
-                with st.spinner("Analysing your data..."):
-                    try:
-                        diag = ai_diag(df_posts,df_stats,sector,bench_eng,api_key)
-                        st.session_state.diagnosis = diag
-                    except Exception as e:
-                        st.error(f"Something went wrong: {e}")
-        if "diagnosis" in st.session_state:
-            raw = re.sub(r"#{1,6}\s*","",st.session_state.diagnosis)
-            raw = re.sub(r"\*?\*?PART\s+\d+[^\n]*\*?\*?\n?","",raw).strip()
-            if "---ACTIONS---" in raw:
-                diag_part, actions_part = raw.split("---ACTIONS---",1)
-                st.markdown('<p class="section-head">LinkedIn Performance Analysis</p>', unsafe_allow_html=True)
-                st.markdown(f'<div class="ai-box">{diag_part.strip()}</div>', unsafe_allow_html=True)
-                st.markdown('<p class="section-head">5 ways to improve your LinkedIn</p>', unsafe_allow_html=True)
-                actions_html = ""
-                for line in actions_part.strip().split("\n"):
-                    line = re.sub(r"#{1,6}\s*","",line.strip())
-                    line = re.sub(r"\*\*(.+?)\*\*",r"<strong>\1</strong>",line)
-                    if line and line[0].isdigit():
-                        if ":" in line:
-                            tp,dp = line.split(":",1)
-                            formatted = f"<strong>{tp}:</strong>{dp}"
-                        else:
-                            formatted = line
-                        actions_html += f'<div style="background:white;border:1.5px solid #e8e2d8;border-radius:12px;padding:0.9rem 1.25rem;margin-bottom:0.6rem;font-size:14px;line-height:1.7;color:{DARK};">{formatted}</div>'
-                if actions_html:
-                    st.markdown(actions_html, unsafe_allow_html=True)
-            else:
-                st.markdown('<p class="section-head">LinkedIn Performance Analysis</p>', unsafe_allow_html=True)
-                st.markdown(f'<div class="ai-box">{raw}</div>', unsafe_allow_html=True)
-
-    # ── POST REVIEW ───────────────────────────────────────────────────────────
-    with tm["📋 How did my posts do?"]:
-        st.markdown("#### Post Review")
-        st.markdown("We'll review your 10 most recent posts and give you specific, actionable feedback on each one.")
-        api_key2 = st.secrets.get("ANTHROPIC_API_KEY",None)
-        recent = df_posts[df_posts["Weergaven"]>0].sort_values("Aangemaakt",ascending=False).head(10)
-        st.markdown('<p class="section-head">Posts to be reviewed</p>', unsafe_allow_html=True)
-        prev = recent[["Aangemaakt","Title_short","Weergaven"]].copy()
-        prev["Aangemaakt"] = prev["Aangemaakt"].dt.strftime("%Y-%m-%d")
-        prev["Weergaven"] = prev["Weergaven"].apply(lambda v: f"{v:,}".replace(",","."))
-        prev.columns = ["Date","Post","Views"]
-        st.dataframe(prev,use_container_width=True,hide_index=True)
-        if api_key2:
-            if st.button("Review my posts →", type="primary"):
-                top = df_posts.nlargest(3,"Engagement_pct")[["Title_short","Engagement_pct"]].to_dict("records")
-                pt = "\n---\n".join(recent["Titel"].fillna("").str[:800].tolist())
-                with st.spinner("Reviewing your posts..."):
-                    try:
-                        result = ai_audit(pt,str(top),sector,api_key2)
-                        st.session_state.audit = result
-                    except Exception as e:
-                        st.error(f"Something went wrong: {e}")
-        if "audit" in st.session_state:
-            lines = st.session_state.audit.strip().split("\n")
-            post_groups,current_post,summary_lines,in_summary = [],[],[],False
-            for line in lines:
-                line = line.strip()
-                if not line: continue
-                if any(line.startswith(x) for x in ["WHAT'S WORKING","TOP OPPORTUNITY","WHAT","PATTERN"]):
-                    in_summary = True
-                    if current_post: post_groups.append(current_post); current_post = []
-                if in_summary:
-                    summary_lines.append(line)
-                elif line.startswith("POST "):
-                    if current_post: post_groups.append(current_post)
-                    current_post = [line]
-                else:
-                    if current_post: current_post.append(line)
-            if current_post: post_groups.append(current_post)
-            for group in post_groups:
-                header = group[0]
-                body = " ".join(group[1:]) if len(group)>1 else ""
-                st.markdown(f'<div style="background:white;border:1.5px solid #e8e2d8;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;"><div style="background:{CREAM};border-radius:8px;padding:0.6rem 1rem;font-weight:600;font-size:13px;color:{DARK};margin-bottom:0.6rem;">{header}</div><div style="font-size:14px;line-height:1.7;color:#333;">{body}</div></div>', unsafe_allow_html=True)
-            if summary_lines:
-                st.markdown('<p class="section-head">Patterns & opportunities</p>', unsafe_allow_html=True)
-                html = ""
-                for line in summary_lines:
-                    line = re.sub(r"\*\*(.+?)\*\*",r"<strong>\1</strong>",line)
-                    if ":" in line:
-                        lbl,bdy = line.split(":",1)
-                        html += f'<div style="display:flex;gap:10px;margin-bottom:10px;"><span style="color:{RED};font-weight:700;">›</span><div><strong>{lbl.strip()}:</strong>{bdy}</div></div>'
-                    else:
-                        html += f'<div style="display:flex;gap:10px;margin-bottom:10px;"><span style="color:{RED};font-weight:700;">›</span><span>{line}</span></div>'
-                st.markdown(f'<div class="ai-box">{html}</div>', unsafe_allow_html=True)
-
-    # ── DRAFT FEEDBACK ────────────────────────────────────────────────────────
-    with tm["✏️ Is this ready to post?"]:
-        st.markdown("#### Is this ready to post?")
+    with tm["✏️ Write a post"]:
+        st.markdown("#### Write a post")
         st.markdown("The best posts are written by humans. This just helps you write a better one.")
         st.caption("Adjust by hand. The best version is still the one that sounds like you.")
         api_key3 = st.secrets.get("ANTHROPIC_API_KEY",None)
@@ -1109,6 +1043,7 @@ elif step == 7:
         if "draft_feedback" in st.session_state:
             fb = re.sub(r"\*\*(.+?)\*\*",r"<strong>\1</strong>",st.session_state.draft_feedback)
             st.markdown(f'<div class="ai-box">{fb.replace(chr(10),"<br>")}</div>', unsafe_allow_html=True)
+
 
     # ── FOLLOWERS ─────────────────────────────────────────────────────────────
     if "👥 Followers" in tm:
