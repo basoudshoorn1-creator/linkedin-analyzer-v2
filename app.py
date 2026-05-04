@@ -784,10 +784,10 @@ elif step == 7:
         st.stop()
 
     # ── MEDIAN / MEAN TOGGLE ──────────────────────────────────────────────────
-    col_toggle, _ = st.columns([2,3])
-    with col_toggle:
-        use_median = st.toggle("Use median (recommended)", value=True,
-            help="Median ignores outlier posts and shows your *typical* performance. Mean (average) includes viral spikes — useful to see ceiling, but can be misleading.")
+    # Defined early so agg_fn is available for all aggregates below
+    use_median = True  # default, overridden by toggle rendered after KPIs
+    if "use_median" in st.session_state:
+        use_median = st.session_state["use_median"]
     agg_label = "Median" if use_median else "Average"
     agg_fn = lambda s: s.median() if use_median else s.mean()
 
@@ -820,6 +820,15 @@ elif step == 7:
     with k2: st.markdown(kpi("Total views",f"{int(monthly['Views'].sum()):,}".replace(",","."),f"{d1} – {d2}"),unsafe_allow_html=True)
     with k3: st.markdown(kpi("Posts per week",f"{ppw:.1f}",f"{'On track' if freq_ok else 'Below'} — benchmark: {bench['frequency']}",freq_ok),unsafe_allow_html=True)
     with k4: st.markdown(kpi("Best day",best_day,"based on your post history"),unsafe_allow_html=True)
+
+    # Toggle — visible just above tabs
+    _tc, _th = st.columns([2,3])
+    with _tc:
+        _new_median = st.toggle("Use median (recommended)", value=use_median,
+            help="Median ignores outlier posts and reflects your *typical* performance. Average includes viral spikes — useful to see your ceiling, but can be misleading as a benchmark.")
+        if _new_median != use_median:
+            st.session_state["use_median"] = _new_median
+            st.rerun()
     st.markdown("---")
 
     tab_names = ["💡 Insights","📊 Content","✏️ Write a post"]
@@ -933,28 +942,50 @@ elif step == 7:
                 f"at <strong>{best_type_score:.1f}%</strong>. If you are not leaning into this format already, it is worth doing more of it."))
 
         # ── RENDER CARDS ──────────────────────────────────────────────────────
-        STATUS_COLOR = {"good": "#057642", "warn": "#B45309", "bad": "#C0392B", "neutral": "#4A5568"}
-        STATUS_BG    = {"good": "#F0FDF4", "warn": "#FFFBEB", "bad": "#FEF2F2", "neutral": "#F8F9FA"}
-        STATUS_BORDER= {"good": "#BBF7D0", "warn": "#FDE68A", "bad": "#FECACA", "neutral": "#E2E8F0"}
+        # Brand palette: DARK=#0D1B2A, ORANGE=#FB8500, BLUE=#8ECAE6, CREAM=#EAF4FB
+        CARD_STYLES = {
+            "good":    {"bg": "#EAF4FB", "border": "#8ECAE6", "accent": "#0D1B2A",  "label_color": "#0D1B2A"},
+            "warn":    {"bg": "#FFF7ED", "border": "#FB8500", "accent": "#FB8500",  "label_color": "#C05E00"},
+            "bad":     {"bg": "#FEF2F2", "border": "#E53E3E", "accent": "#E53E3E",  "label_color": "#C0392B"},
+            "neutral": {"bg": "#F4F6F8", "border": "#8ECAE6", "accent": "#8ECAE6",  "label_color": "#4A5568"},
+        }
 
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2, gap="medium")
         for i, (status, icon, title, text) in enumerate(cards):
+            s = CARD_STYLES.get(status, CARD_STYLES["neutral"])
             col = col1 if i % 2 == 0 else col2
             with col:
                 st.markdown(f'''
 <div style="
-    background:{STATUS_BG[status]};
-    border:1.5px solid {STATUS_BORDER[status]};
-    border-left:4px solid {STATUS_COLOR[status]};
+    background:{s['bg']};
+    border:1px solid {s['border']};
+    border-top:3px solid {s['accent']};
     border-radius:10px;
-    padding:1rem 1.2rem;
-    margin-bottom:0.9rem;
+    padding:1.1rem 1.25rem 1rem;
+    margin-bottom:1rem;
+    height:100%;
+    box-sizing:border-box;
 ">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.4rem;">
-        <span style="font-size:16px;">{icon}</span>
-        <span style="font-weight:700;font-size:13px;color:{STATUS_COLOR[status]};text-transform:uppercase;letter-spacing:0.04em;">{title}</span>
+    <div style="
+        display:flex;
+        align-items:center;
+        gap:7px;
+        margin-bottom:0.5rem;
+    ">
+        <span style="font-size:15px;line-height:1;">{icon}</span>
+        <span style="
+            font-size:10.5px;
+            font-weight:700;
+            text-transform:uppercase;
+            letter-spacing:0.07em;
+            color:{s['label_color']};
+        ">{title}</span>
     </div>
-    <div style="font-size:14px;line-height:1.65;color:#1a1a1a;">{text}</div>
+    <div style="
+        font-size:13.5px;
+        line-height:1.65;
+        color:#1a1a1a;
+    ">{text}</div>
 </div>''', unsafe_allow_html=True)
 
         # ── AI STRATEGY ───────────────────────────────────────────────────────
