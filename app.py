@@ -6,6 +6,12 @@ from datetime import datetime
 import plotly.graph_objects as go
 import io, json, re
 from anthropic import Anthropic
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 st.set_page_config(page_title="LinkedIn Analytics Analyzer", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
@@ -303,6 +309,159 @@ Direct and professional. Do not rewrite the post. Plain text only."""
     return r.content[0].text
 
 
+# ── PDF EXPORT ────────────────────────────────────────────────────────────────
+
+def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, bench_freq,
+                 best_day, top_posts_df, funnel_df, diagnosis_text=None):
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=2.2*cm, rightMargin=2.2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+
+    ORANGE = colors.HexColor("#FB8500")
+    DARK   = colors.HexColor("#0D1B2A")
+    CREAM  = colors.HexColor("#EAF4FB")
+    GREY   = colors.HexColor("#888888")
+
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", fontSize=22, textColor=DARK, fontName="Helvetica-Bold",
+                         spaceAfter=4, leading=26)
+    h2 = ParagraphStyle("h2", fontSize=13, textColor=DARK, fontName="Helvetica-Bold",
+                         spaceBefore=16, spaceAfter=6, leading=16)
+    body = ParagraphStyle("body", fontSize=10, textColor=DARK, fontName="Helvetica",
+                           leading=15, spaceAfter=4)
+    small = ParagraphStyle("small", fontSize=8.5, textColor=GREY, fontName="Helvetica",
+                            leading=12, spaceAfter=2)
+    label = ParagraphStyle("label", fontSize=8, textColor=GREY, fontName="Helvetica-Bold",
+                             leading=10, spaceAfter=2, spaceBefore=2)
+
+    story = []
+
+    # Header block
+    story.append(Paragraph("LinkedIn Performance Report", h1))
+    subtitle = f"{company} · {sector} · {d1} – {d2}" if company else f"{sector} · {d1} – {d2}"
+    story.append(Paragraph(subtitle, small))
+    story.append(Spacer(1, 0.3*cm))
+    story.append(HRFlowable(width="100%", thickness=2, color=ORANGE, spaceAfter=14))
+
+    # KPI summary table
+    evb = avg_eng - bench_eng
+    evb_str = f"+{evb:.1f}% vs benchmark" if evb >= 0 else f"{evb:.1f}% vs benchmark"
+    freq_min = float(bench_freq.split("x")[0].split("-")[0])
+    freq_str = "On track" if ppw >= freq_min else f"Below — target: {bench_freq}"
+
+    kpi_data = [
+        ["METRIC", "YOUR RESULT", "BENCHMARK / NOTE"],
+        ["Median engagement rate", f"{avg_eng:.1f}%", f"{bench_eng}% ({evb_str})"],
+        ["Posts per week", f"{ppw:.1f}x", bench_freq],
+        ["Posts analysed", str(n_posts), f"{d1} – {d2}"],
+        ["Best posting day", best_day, "Based on median engagement"],
+        ["Posting frequency", freq_str, f"Benchmark: {bench_freq}"],
+    ]
+    kpi_table = Table(kpi_data, colWidths=[5.5*cm, 4.5*cm, 7*cm])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,0), DARK),
+        ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+        ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE",     (0,0), (-1,-1), 8.5),
+        ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F5F9FC")]),
+        ("GRID",         (0,0), (-1,-1), 0.5, colors.HexColor("#E0E0E0")),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 7),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 0.5*cm))
+
+    # Funnel section
+    story.append(Paragraph("Content Funnel — Views to Action", h2))
+    story.append(Paragraph(
+        "This table shows how your top posts converted impressions into real actions. "
+        "High views with low clicks = reach without impact.",
+        body))
+    story.append(Spacer(1, 0.2*cm))
+
+    if funnel_df is not None and len(funnel_df) > 0:
+        fd = funnel_df.head(15).copy()
+        funnel_data = [["POST (first 55 chars)", "VIEWS", "CLICKS", "CTR", "ENGAGEMENT"]]
+        for _, row in fd.iterrows():
+            funnel_data.append([
+                str(row.get("Title_short",""))[:55],
+                f"{int(row.get('Weergaven',0)):,}".replace(",","."),
+                f"{int(row.get('Klikken',0)):,}".replace(",","."),
+                f"{row.get('CTR_pct',0):.2f}%",
+                f"{row.get('Engagement_pct',0):.2f}%",
+            ])
+        f_table = Table(funnel_data, colWidths=[8*cm, 2.2*cm, 2.2*cm, 2*cm, 2.6*cm])
+        f_table.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0), (-1,0), DARK),
+            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0,0), (-1,-1), 8),
+            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#F5F9FC")]),
+            ("GRID",         (0,0), (-1,-1), 0.4, colors.HexColor("#E0E0E0")),
+            ("TOPPADDING",   (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
+            ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        ]))
+        story.append(f_table)
+    story.append(Spacer(1, 0.5*cm))
+
+    # Top posts
+    story.append(Paragraph("Top 5 Posts by Engagement", h2))
+    if top_posts_df is not None and len(top_posts_df) > 0:
+        tp = top_posts_df.head(5)
+        tp_data = [["POST", "DATE", "VIEWS", "ENGAGEMENT"]]
+        for _, row in tp.iterrows():
+            tp_data.append([
+                str(row.get("Title_short",""))[:60],
+                str(row.get("Aangemaakt",""))[:10],
+                f"{int(row.get('Weergaven',0)):,}".replace(",","."),
+                f"{row.get('Engagement_pct',0):.2f}%",
+            ])
+        tp_table = Table(tp_data, colWidths=[8.5*cm, 2.5*cm, 2.5*cm, 3.5*cm])
+        tp_table.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0), (-1,0), ORANGE),
+            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0,0), (-1,-1), 8),
+            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#FFF8F0")]),
+            ("GRID",         (0,0), (-1,-1), 0.4, colors.HexColor("#E0E0E0")),
+            ("TOPPADDING",   (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
+            ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        ]))
+        story.append(tp_table)
+    story.append(Spacer(1, 0.5*cm))
+
+    # AI diagnosis if available
+    if diagnosis_text:
+        story.append(Paragraph("AI Strategy Analysis", h2))
+        story.append(HRFlowable(width="100%", thickness=1, color=ORANGE, spaceAfter=8))
+        clean = re.sub(r"---ACTIONS---", "\n5 ways to improve:\n", diagnosis_text)
+        clean = re.sub(r"#{1,6}\s*", "", clean)
+        clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
+        for para in clean.strip().split("\n"):
+            para = para.strip()
+            if para:
+                story.append(Paragraph(para, body))
+
+    # Footer
+    story.append(Spacer(1, 0.8*cm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=GREY, spaceAfter=6))
+    story.append(Paragraph(
+        f"Generated by LinkedIn Analyzer v2 · {datetime.now().strftime('%d %b %Y')} · "
+        "linkedin-analyzer-v2.streamlit.app",
+        small))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 
 defaults = {"step":1,"email":"","name":"","company":"","sector":"Other","current_followers":0,
@@ -567,7 +726,7 @@ elif step == 7:
     with k4: st.markdown(kpi("Best day",best_day,"based on your post history"),unsafe_allow_html=True)
     st.markdown("---")
 
-    tab_names = ["💡 Insights","📊 Content","🧠 AI Strategy Check","📋 How did my posts do?","✏️ Is this ready to post?"]
+    tab_names = ["💡 Insights","📊 Content","🔬 Post Funnel","🧠 AI Strategy Check","📋 How did my posts do?","✏️ Is this ready to post?"]
     if fol_growth is not None: tab_names.append("👥 Followers")
     if vis_data is not None: tab_names.append("👁 Visitors")
     if df_comp is not None: tab_names.append("🏆 Competitors")
@@ -664,7 +823,83 @@ elif step == 7:
         with t1: post_table(df_posts.sort_values("Weergaven",ascending=False).head(10),bench_eng)
         with t2: post_table(df_posts[df_posts["Engagement_pct"]>0].sort_values("Engagement_pct",ascending=False).head(10),bench_eng)
 
-    # ── AI STRATEGY ───────────────────────────────────────────────────────────
+    # ── POST FUNNEL ───────────────────────────────────────────────────────────
+    with tm["🔬 Post Funnel"]:
+        st.markdown("#### From reach to real action.")
+        st.markdown("High views mean nothing if nobody clicks. This table shows exactly where your posts convert — and where they don't.")
+        st.markdown("")
+
+        funnel_df = df_posts[df_posts["Weergaven"] > 0].copy()
+        funnel_df["CTR_pct"] = (funnel_df["Klikken"] / funnel_df["Weergaven"] * 100).round(3)
+        funnel_df["Engagement_actions"] = funnel_df["Interessant"] + funnel_df["Commentaren"] + funnel_df["Reposts"]
+        funnel_df["Aangemaakt_str"] = funnel_df["Aangemaakt"].dt.strftime("%Y-%m-%d")
+
+        sort_col = st.radio("Sort by", ["CTR (clicks ÷ views)", "Views", "Engagement actions"], horizontal=True)
+        sort_map = {"CTR (clicks ÷ views)": "CTR_pct", "Views": "Weergaven", "Engagement actions": "Engagement_actions"}
+        funnel_sorted = funnel_df.sort_values(sort_map[sort_col], ascending=False).reset_index(drop=True)
+
+        # Funnel summary KPIs
+        avg_ctr = funnel_df["CTR_pct"].median()
+        total_clicks = int(funnel_df["Klikken"].sum())
+        total_views = int(funnel_df["Weergaven"].sum())
+        high_reach_low_ctr = funnel_df[
+            (funnel_df["Weergaven"] > funnel_df["Weergaven"].quantile(0.6)) &
+            (funnel_df["CTR_pct"] < avg_ctr)
+        ]
+
+        fa, fb, fc, fd = st.columns(4)
+        with fa:
+            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Total views (period)</div><div class="kpi-value">{total_views:,}</div></div>'.replace(",","."), unsafe_allow_html=True)
+        with fb:
+            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Total clicks</div><div class="kpi-value">{total_clicks:,}</div><div class="kpi-benchmark">Avg CTR: {avg_ctr:.2f}%</div></div>'.replace(",","."), unsafe_allow_html=True)
+        with fc:
+            conversion = (total_clicks / total_views * 100) if total_views > 0 else 0
+            st.markdown(f'<div class="kpi-card"><div class="kpi-label">Overall click rate</div><div class="kpi-value">{conversion:.2f}%</div><div class="kpi-benchmark">Clicks ÷ total views</div></div>', unsafe_allow_html=True)
+        with fd:
+            st.markdown(f'<div class="kpi-card"><div class="kpi-label">High reach, low CTR</div><div class="kpi-value">{len(high_reach_low_ctr)}</div><div class="kpi-benchmark">Posts that reached many but converted few</div></div>', unsafe_allow_html=True)
+
+        st.markdown("")
+        st.markdown('<p class="section-head">Post-by-post funnel</p>', unsafe_allow_html=True)
+
+        # Visual funnel table
+        display_cols = ["Title_short", "Aangemaakt_str", "Weergaven", "Klikken", "CTR_pct", "Engagement_actions", "Engagement_pct"]
+        display = funnel_sorted[display_cols].copy()
+        display.columns = ["Post", "Date", "Views", "Clicks", "CTR %", "Actions (likes+comments+reposts)", "Engagement %"]
+        display["Views"] = display["Views"].apply(lambda v: f"{v:,}".replace(",","."))
+        display["Clicks"] = display["Clicks"].apply(lambda v: f"{int(v):,}".replace(",","."))
+        display["CTR %"] = display["CTR %"].apply(lambda v: f"{v:.2f}%")
+        display["Actions (likes+comments+reposts)"] = display["Actions (likes+comments+reposts)"].apply(lambda v: f"{int(v):,}".replace(",","."))
+        display["Engagement %"] = display["Engagement %"].apply(lambda v: f"{v:.2f}%")
+
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+        # Insight callout
+        if len(high_reach_low_ctr) > 0:
+            worst = high_reach_low_ctr.sort_values("Weergaven", ascending=False).iloc[0]
+            st.markdown(
+                insight_card("⚠️", "Reach without action",
+                    f"<strong>{len(high_reach_low_ctr)} posts</strong> had above-average views but below-average CTR. "
+                    f"Your top example: <em>\"{worst['Title_short']}\"</em> reached "
+                    f"<strong>{int(worst['Weergaven']):,} people</strong> but only generated "
+                    f"<strong>{int(worst['Klikken'])} clicks</strong> ({worst['CTR_pct']:.2f}% CTR). "
+                    "High reach with no action is the definition of a vanity metric.",
+                    "warn"),
+                unsafe_allow_html=True)
+
+        best_ctr_post = funnel_sorted[funnel_sorted["Klikken"] > 0].iloc[0] if len(funnel_sorted[funnel_sorted["Klikken"] > 0]) > 0 else None
+        if best_ctr_post is not None:
+            st.markdown(
+                insight_card("🎯", "Your best converter",
+                    f"<strong>\"{best_ctr_post['Title_short']}\"</strong> had your highest click-through rate at "
+                    f"<strong>{best_ctr_post['CTR_pct']:.2f}%</strong> — "
+                    f"{int(best_ctr_post['Weergaven']):,} views → {int(best_ctr_post['Klikken'])} clicks. "
+                    "Study what made this post drive action and try to replicate it.",
+                    "good"),
+                unsafe_allow_html=True)
+
+        st.caption("CTR = clicks ÷ views. Actions = likes + comments + reposts. Sorted by your chosen metric.")
+
+    
     with tm["🧠 AI Strategy Check"]:
         st.markdown("#### What does your data actually mean?")
         st.markdown("A plain-English read on your LinkedIn performance — what's working, where the opportunities are, and one thing to try next.")
@@ -858,6 +1093,48 @@ elif step == 7:
                     xaxis=dict(showgrid=False,visible=False),yaxis=dict(showgrid=False),bargap=0.3)
                 st.plotly_chart(fig,use_container_width=True)
             st.caption("Orange = your page · Blue = competitors")
+
+    # ── PDF EXPORT ────────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 📄 Download your report")
+    st.markdown("A clean PDF summary you can share with your manager or team — no screenshots needed.")
+
+    funnel_for_pdf = df_posts[df_posts["Weergaven"] > 0].copy()
+    funnel_for_pdf["CTR_pct"] = (funnel_for_pdf["Klikken"] / funnel_for_pdf["Weergaven"] * 100).round(3)
+    funnel_for_pdf = funnel_for_pdf.sort_values("CTR_pct", ascending=False)
+    top_posts_for_pdf = df_posts[df_posts["Engagement_pct"] > 0].sort_values("Engagement_pct", ascending=False)
+    top_posts_for_pdf = top_posts_for_pdf.copy()
+    top_posts_for_pdf["Aangemaakt"] = top_posts_for_pdf["Aangemaakt"].dt.strftime("%Y-%m-%d")
+
+    diagnosis_for_pdf = st.session_state.get("diagnosis", None)
+
+    if st.button("Generate PDF report", type="primary"):
+        with st.spinner("Building your report..."):
+            try:
+                pdf_buf = generate_pdf(
+                    company=company,
+                    sector=sector,
+                    d1=d1, d2=d2,
+                    n_posts=len(df_posts),
+                    avg_eng=avg_eng,
+                    bench_eng=bench_eng,
+                    ppw=ppw,
+                    bench_freq=bench["frequency"],
+                    best_day=best_day,
+                    top_posts_df=top_posts_for_pdf,
+                    funnel_df=funnel_for_pdf,
+                    diagnosis_text=diagnosis_for_pdf,
+                )
+                fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
+                st.download_button(
+                    label="⬇ Download PDF",
+                    data=pdf_buf,
+                    file_name=fname,
+                    mime="application/pdf",
+                )
+                st.caption("Tip: run the AI Strategy Check first — it will be included in your PDF.")
+            except Exception as e:
+                st.error(f"Could not generate PDF: {e}")
 
     # ── CTA ───────────────────────────────────────────────────────────────────
     st.markdown(f'<div class="cta-banner"><div class="cta-text"><strong>Rather brainstorm with a human?</strong>Connect with Bas Oudshoorn — LinkedIn strategist & Marketing Communications Manager at Leiden Bio Science Park.</div><a href="{BAS_URL}" target="_blank" class="cta-btn">Connect on LinkedIn</a></div>', unsafe_allow_html=True)
