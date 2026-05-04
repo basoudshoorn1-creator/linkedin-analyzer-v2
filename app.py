@@ -1084,7 +1084,7 @@ elif step == 7:
                     p_str = str(p).lower().strip()
                     c_str = company.lower().strip() if company else ""
                     is_own = c_str and (c_str in p_str or p_str in c_str)
-                    rl_colors.append(RED if is_own else BLUE)
+                    colors.append(RED if is_own else BLUE)
                 fig = go.Figure(go.Bar(x=ds2[metric],y=ds2["Pagina"],orientation="h",
                     marker=dict(color=colors,line=dict(width=0)),
                     text=ds2[metric],textposition="outside",textfont=dict(size=12)))
