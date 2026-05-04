@@ -885,14 +885,18 @@ elif step == 7:
                 f"({abs(evb_rel):.0f}% below average). There is room to improve how your content connects with your audience."))
 
         # 2. Funnel: reach vs action
-        cards.append(("warn" if len(high_reach_low_ctr) > 2 else "good", "🎯", "Reach vs. action",
+        _converter_txt = (
+            f"Your best converter: <em>\"{best_converter['Title_short']}\"</em> at <strong>{best_converter['CTR_pct']:.2f}% CTR</strong>."
+            if best_converter is not None else ""
+        )
+        _funnel_txt = (
             f"Your content reached <strong>{total_views_ins:,} views</strong> and generated "
             f"<strong>{total_clicks_ins:,} clicks</strong> — an overall click rate of "
             f"<strong>{overall_ctr_ins:.2f}%</strong>. "
             f"<strong>{len(high_reach_low_ctr)} post{'s' if len(high_reach_low_ctr)!=1 else ''}</strong> "
-            f"had high reach but below-average click-through. "
-            + ("Your best converter: <em>\"" + str(best_converter["Title_short"]) + "\"</em> at <strong>" + f"{best_converter['CTR_pct']:.2f}% CTR</strong>." if best_converter is not None else "")
-        ).replace(",","."))
+            f"had high reach but below-average click-through. {_converter_txt}"
+        ).replace(",",".")
+        cards.append(("warn" if len(high_reach_low_ctr) > 2 else "good", "🎯", "Reach vs. action", _funnel_txt))
 
         # 3. Best day
         if best_day_ins != "—":
