@@ -312,7 +312,8 @@ Direct and professional. Do not rewrite the post. Plain text only."""
 # ── PDF EXPORT ────────────────────────────────────────────────────────────────
 
 def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, bench_freq,
-                 best_day, top_posts_df, funnel_df, diagnosis_text=None):
+                 best_day, top_posts_df, funnel_df, monthly_df, agg_label="Median",
+                 diagnosis_text=None, total_views=0, total_clicks=0):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             leftMargin=2.2*cm, rightMargin=2.2*cm,
@@ -320,146 +321,229 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
 
     ORANGE = rl_colors.HexColor("#FB8500")
     DARK   = rl_colors.HexColor("#0D1B2A")
-    CREAM  = rl_colors.HexColor("#EAF4FB")
+    LGREY  = rl_colors.HexColor("#F5F7FA")
     GREY   = rl_colors.HexColor("#888888")
+    GREEN  = rl_colors.HexColor("#057642")
+    RED_C  = rl_colors.HexColor("#C0392B")
 
-    styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("h1", fontSize=22, textColor=DARK, fontName="Helvetica-Bold",
-                         spaceAfter=4, leading=26)
-    h2 = ParagraphStyle("h2", fontSize=13, textColor=DARK, fontName="Helvetica-Bold",
-                         spaceBefore=16, spaceAfter=6, leading=16)
-    body = ParagraphStyle("body", fontSize=10, textColor=DARK, fontName="Helvetica",
-                           leading=15, spaceAfter=4)
-    small = ParagraphStyle("small", fontSize=8.5, textColor=GREY, fontName="Helvetica",
-                            leading=12, spaceAfter=2)
-    label = ParagraphStyle("label", fontSize=8, textColor=GREY, fontName="Helvetica-Bold",
-                             leading=10, spaceAfter=2, spaceBefore=2)
+    evb      = avg_eng - bench_eng
+    evb_rel  = (evb / bench_eng * 100) if bench_eng > 0 else 0
+    freq_min = float(bench_freq.split("x")[0].split("-")[0])
+    freq_ok  = ppw >= freq_min
+    overall_ctr = (total_clicks / total_views * 100) if total_views > 0 else 0
+
+    h1   = ParagraphStyle("h1",   fontSize=24, textColor=DARK,   fontName="Helvetica-Bold", spaceAfter=2,   leading=28)
+    h2   = ParagraphStyle("h2",   fontSize=12, textColor=DARK,   fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=5,  leading=15)
+    h3   = ParagraphStyle("h3",   fontSize=10, textColor=ORANGE, fontName="Helvetica-Bold", spaceBefore=8,  spaceAfter=3,  leading=13)
+    body = ParagraphStyle("body", fontSize=9.5,textColor=DARK,   fontName="Helvetica",      leading=14,     spaceAfter=4)
+    small= ParagraphStyle("small",fontSize=8,  textColor=GREY,   fontName="Helvetica",      leading=11,     spaceAfter=2)
+    exec_= ParagraphStyle("exec", fontSize=10, textColor=DARK,   fontName="Helvetica",      leading=15,     spaceAfter=3, leftIndent=10)
 
     story = []
 
-    # Header block
+    # HEADER
+    subtitle = f"{company} \u00b7 {sector} \u00b7 {d1} \u2013 {d2} \u00b7 {n_posts} posts" if company else f"{sector} \u00b7 {d1} \u2013 {d2} \u00b7 {n_posts} posts"
     story.append(Paragraph("LinkedIn Performance Report", h1))
-    subtitle = f"{company} · {sector} · {d1} – {d2}" if company else f"{sector} · {d1} – {d2}"
     story.append(Paragraph(subtitle, small))
-    story.append(Spacer(1, 0.3*cm))
-    story.append(HRFlowable(width="100%", thickness=2, color=ORANGE, spaceAfter=14))
+    story.append(HRFlowable(width="100%", thickness=2.5, color=ORANGE, spaceBefore=6, spaceAfter=12))
 
-    # KPI summary table
-    evb = avg_eng - bench_eng
-    evb_str = f"+{evb:.1f}% vs benchmark" if evb >= 0 else f"{evb:.1f}% vs benchmark"
-    freq_min = float(bench_freq.split("x")[0].split("-")[0])
-    freq_str = "On track" if ppw >= freq_min else f"Below — target: {bench_freq}"
+    # EXECUTIVE SUMMARY
+    story.append(Paragraph("Executive Summary", h2))
+    if evb >= 0:
+        eng_line = f"Engagement is <b>{abs(evb):.1f}pp above benchmark</b> ({evb_rel:.0f}% better than the {sector} average of {bench_eng}%)"
+        eng_icon = "+"
+    else:
+        eng_line = f"Engagement is <b>{abs(evb):.1f}pp below benchmark</b> ({abs(evb_rel):.0f}% below the {sector} average of {bench_eng}%)"
+        eng_icon = "!"
+    freq_line = f"Posting {ppw:.1f}x per week \u2014 {'on track' if freq_ok else 'below target (benchmark: ' + bench_freq + ')'}"
+    ctr_line  = f"Overall click rate: {overall_ctr:.2f}% ({int(total_clicks):,} clicks from {int(total_views):,} total views)".replace(",",".")
 
-    kpi_data = [
-        ["METRIC", "YOUR RESULT", "BENCHMARK / NOTE"],
-        ["Median engagement rate", f"{avg_eng:.1f}%", f"{bench_eng}% ({evb_str})"],
-        ["Posts per week", f"{ppw:.1f}x", bench_freq],
-        ["Posts analysed", str(n_posts), f"{d1} – {d2}"],
-        ["Best posting day", best_day, "Based on median engagement"],
-        ["Posting frequency", freq_str, f"Benchmark: {bench_freq}"],
+    exec_rows = [
+        [Paragraph(eng_icon, body),   Paragraph(eng_line,  exec_)],
+        [Paragraph("\u2192",  body),  Paragraph(freq_line, exec_)],
+        [Paragraph("\u2192",  body),  Paragraph(ctr_line,  exec_)],
     ]
-    kpi_table = Table(kpi_data, colWidths=[5.5*cm, 4.5*cm, 7*cm])
-    kpi_table.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0), (-1,0), DARK),
-        ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
-        ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0,0), (-1,-1), 8.5),
-        ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1), [rl_colors.white, rl_colors.HexColor("#F5F9FC")]),
-        ("GRID",         (0,0), (-1,-1), 0.5, rl_colors.HexColor("#E0E0E0")),
-        ("TOPPADDING",   (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
-        ("LEFTPADDING",  (0,0), (-1,-1), 7),
+    exec_table = Table(exec_rows, colWidths=[0.6*cm, 16.4*cm])
+    exec_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,-1), LGREY),
+        ("TOPPADDING",    (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
     ]))
-    story.append(kpi_table)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(exec_table)
+    story.append(Spacer(1, 0.4*cm))
 
-    # Funnel section
-    story.append(Paragraph("Content Funnel — Views to Action", h2))
+    # SCORECARD
+    story.append(Paragraph("Performance Scorecard", h2))
+    kpi_data = [
+        ["METRIC", "RESULT", "BENCHMARK", "VERDICT"],
+        [f"{agg_label} engagement", f"{avg_eng:.1f}%", f"{bench_eng}%",
+         f"+{evb:.1f}pp (+{evb_rel:.0f}%)" if evb >= 0 else f"{evb:.1f}pp ({evb_rel:.0f}%)"],
+        ["Posts per week",  f"{ppw:.1f}x",        bench_freq, "On track" if freq_ok else "Below target"],
+        ["Best posting day", best_day,             "\u2014",  "Highest engagement day"],
+        ["Overall click rate", f"{overall_ctr:.2f}%", "\u2014",
+         f"{int(total_clicks):,} clicks / {int(total_views):,} views".replace(",",".")],
+        ["Posts analysed",  str(n_posts),          f"{d1} \u2013 {d2}", "\u2014"],
+    ]
+    kpi_style = TableStyle([
+        ("BACKGROUND",    (0,0), (-1,0), DARK),
+        ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
+        ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0,0), (-1,-1), 8.5),
+        ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, LGREY]),
+        ("GRID",          (0,0), (-1,-1), 0.4, rl_colors.HexColor("#DDDDDD")),
+        ("TOPPADDING",    (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ("LEFTPADDING",   (0,0), (-1,-1), 7),
+    ])
+    for i, row in enumerate(kpi_data[1:], 1):
+        verdict = str(row[3])
+        if verdict.startswith("+") or verdict in ("On track", "Highest engagement day"):
+            kpi_style.add("TEXTCOLOR", (3,i), (3,i), GREEN)
+        elif verdict.startswith("-") or "Below" in verdict:
+            kpi_style.add("TEXTCOLOR", (3,i), (3,i), RED_C)
+    kpi_t = Table(kpi_data, colWidths=[4.5*cm, 3*cm, 3.5*cm, 6*cm])
+    kpi_t.setStyle(kpi_style)
+    story.append(kpi_t)
+    story.append(Spacer(1, 0.4*cm))
+
+    # MONTHLY SPARKLINE
+    if monthly_df is not None and len(monthly_df) >= 2:
+        story.append(Paragraph("Monthly Views Trend", h2))
+        tail  = monthly_df.tail(12)
+        max_v = tail["Views"].max()
+        bars  = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
+        spark = "".join(bars[int((v/max_v)*(len(bars)-1))] if max_v > 0 else bars[0] for v in tail["Views"])
+        story.append(Paragraph(f'<font size="18">{spark}</font>', body))
+        story.append(Paragraph("  \u00b7  ".join(tail["Month"].tolist()), small))
+        story.append(Spacer(1, 0.3*cm))
+
+    # FUNNEL TABLE
+    story.append(Paragraph("Content Funnel \u2014 Views \u2192 Clicks \u2192 Engagement", h2))
     story.append(Paragraph(
-        "This table shows how your top posts converted impressions into real actions. "
-        "High views with low clicks = reach without impact.",
-        body))
-    story.append(Spacer(1, 0.2*cm))
+        "Sorted by CTR. High views + low CTR = reach without impact. "
+        "Red CTR = high-reach post with below-average click rate.", body))
+    story.append(Spacer(1, 0.15*cm))
 
     if funnel_df is not None and len(funnel_df) > 0:
-        fd = funnel_df.head(15).copy()
-        funnel_data = [["POST (first 55 chars)", "VIEWS", "CLICKS", "CTR", "ENGAGEMENT"]]
-        for _, row in fd.iterrows():
+        fd = funnel_df.sort_values("CTR_pct", ascending=False).head(12).copy()
+        avg_ctr   = funnel_df["CTR_pct"].median()
+        q60_views = funnel_df["Weergaven"].quantile(0.6)
+        funnel_data = [["POST", "VIEWS", "CLICKS", "CTR", "ENGAGEMENT"]]
+        f_style = TableStyle([
+            ("BACKGROUND",    (0,0), (-1,0), DARK),
+            ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
+            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0), (-1,-1), 8),
+            ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, LGREY]),
+            ("GRID",          (0,0), (-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
+            ("TOPPADDING",    (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+            ("LEFTPADDING",   (0,0), (-1,-1), 5),
+        ])
+        for i, (_, row) in enumerate(fd.iterrows(), 1):
+            ctr = row.get("CTR_pct", 0)
             funnel_data.append([
-                str(row.get("Title_short",""))[:55],
+                str(row.get("Title_short",""))[:50],
                 f"{int(row.get('Weergaven',0)):,}".replace(",","."),
                 f"{int(row.get('Klikken',0)):,}".replace(",","."),
-                f"{row.get('CTR_pct',0):.2f}%",
+                f"{ctr:.2f}%",
                 f"{row.get('Engagement_pct',0):.2f}%",
             ])
-        f_table = Table(funnel_data, colWidths=[8*cm, 2.2*cm, 2.2*cm, 2*cm, 2.6*cm])
-        f_table.setStyle(TableStyle([
-            ("BACKGROUND",   (0,0), (-1,0), DARK),
-            ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
-            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0,0), (-1,-1), 8),
-            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white, rl_colors.HexColor("#F5F9FC")]),
-            ("GRID",         (0,0), (-1,-1), 0.4, rl_colors.HexColor("#E0E0E0")),
-            ("TOPPADDING",   (0,0), (-1,-1), 4),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
-            ("LEFTPADDING",  (0,0), (-1,-1), 6),
-        ]))
+            if ctr < avg_ctr and int(row.get("Weergaven",0)) > q60_views:
+                f_style.add("TEXTCOLOR", (3,i), (3,i), RED_C)
+        f_table = Table(funnel_data, colWidths=[7.5*cm, 2.2*cm, 2.2*cm, 2*cm, 3.1*cm])
+        f_table.setStyle(f_style)
         story.append(f_table)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.4*cm))
 
-    # Top posts
+    # TOP POSTS
     story.append(Paragraph("Top 5 Posts by Engagement", h2))
     if top_posts_df is not None and len(top_posts_df) > 0:
         tp = top_posts_df.head(5)
-        tp_data = [["POST", "DATE", "VIEWS", "ENGAGEMENT"]]
+        tp_data = [["POST", "DATE", "VIEWS", "CLICKS", "ENGAGEMENT"]]
         for _, row in tp.iterrows():
             tp_data.append([
-                str(row.get("Title_short",""))[:60],
+                str(row.get("Title_short",""))[:50],
                 str(row.get("Aangemaakt",""))[:10],
                 f"{int(row.get('Weergaven',0)):,}".replace(",","."),
+                f"{int(row.get('Klikken',0)):,}".replace(",","."),
                 f"{row.get('Engagement_pct',0):.2f}%",
             ])
-        tp_table = Table(tp_data, colWidths=[8.5*cm, 2.5*cm, 2.5*cm, 3.5*cm])
+        tp_table = Table(tp_data, colWidths=[7.5*cm, 2*cm, 2*cm, 2*cm, 3.5*cm])
         tp_table.setStyle(TableStyle([
-            ("BACKGROUND",   (0,0), (-1,0), ORANGE),
-            ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
-            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0,0), (-1,-1), 8),
-            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white, rl_colors.HexColor("#FFF8F0")]),
-            ("GRID",         (0,0), (-1,-1), 0.4, rl_colors.HexColor("#E0E0E0")),
-            ("TOPPADDING",   (0,0), (-1,-1), 4),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
-            ("LEFTPADDING",  (0,0), (-1,-1), 6),
+            ("BACKGROUND",    (0,0), (-1,0), ORANGE),
+            ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
+            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0), (-1,-1), 8),
+            ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, rl_colors.HexColor("#FFF8F0")]),
+            ("GRID",          (0,0), (-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
+            ("TOPPADDING",    (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+            ("LEFTPADDING",   (0,0), (-1,-1), 5),
         ]))
         story.append(tp_table)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.4*cm))
 
-    # AI diagnosis if available
+    # AI ANALYSIS
     if diagnosis_text:
-        story.append(Paragraph("AI Strategy Analysis", h2))
-        story.append(HRFlowable(width="100%", thickness=1, color=ORANGE, spaceAfter=8))
-        clean = re.sub(r"---ACTIONS---", "\n5 ways to improve:\n", diagnosis_text)
-        clean = re.sub(r"#{1,6}\s*", "", clean)
-        clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
-        for para in clean.strip().split("\n"):
-            para = para.strip()
-            if para:
-                story.append(Paragraph(para, body))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=ORANGE, spaceBefore=4, spaceAfter=10))
+        story.append(Paragraph("AI Strategy Analysis & Action Items", h2))
+        if "---ACTIONS---" in diagnosis_text:
+            diag_part, actions_part = diagnosis_text.split("---ACTIONS---", 1)
+            clean_diag = re.sub(r"#{1,6}\s*", "", diag_part)
+            clean_diag = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean_diag)
+            for para in clean_diag.strip().splitlines():
+                if para.strip():
+                    story.append(Paragraph(para.strip(), body))
+            story.append(Spacer(1, 0.3*cm))
+            story.append(Paragraph("Action Items", h3))
+            action_rows = []
+            for line in actions_part.strip().splitlines():
+                line = re.sub(r"#{1,6}\s*", "", line.strip())
+                line = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line)
+                if line and (line[0].isdigit() or line.startswith("-")):
+                    action_rows.append([Paragraph(line, body)])
+            if action_rows:
+                at = Table(action_rows, colWidths=[17*cm])
+                at.setStyle(TableStyle([
+                    ("ROWBACKGROUNDS",(0,0),(-1,-1),[rl_colors.white, LGREY]),
+                    ("GRID",         (0,0),(-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
+                    ("TOPPADDING",   (0,0),(-1,-1), 6),
+                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
+                    ("LEFTPADDING",  (0,0),(-1,-1), 10),
+                    ("LINEABOVE",    (0,0),(-1,0),  2, ORANGE),
+                ]))
+                story.append(at)
+        else:
+            clean = re.sub(r"#{1,6}\s*", "", diagnosis_text)
+            clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
+            for para in clean.strip().splitlines():
+                if para.strip():
+                    story.append(Paragraph(para.strip(), body))
+    else:
+        story.append(Paragraph(
+            "Tip: run the AI Strategy Check in the app and regenerate this PDF to include personalised action items.",
+            small))
 
-    # Footer
+    # FOOTER
     story.append(Spacer(1, 0.8*cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=GREY, spaceAfter=6))
-    story.append(Paragraph(
-        f"Generated by LinkedIn Analyzer v2 · {datetime.now().strftime('%d %b %Y')} · "
-        "linkedin-analyzer-v2.streamlit.app",
-        small))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=GREY, spaceAfter=5))
+    footer_rows = [[
+        Paragraph(f"Generated {datetime.now().strftime('%d %b %Y')} \u00b7 LinkedIn Analyzer v2 \u00b7 linkedin-analyzer-v2.streamlit.app", small),
+        Paragraph(f"Confidential \u2014 {company or sector}", small),
+    ]]
+    ft = Table(footer_rows, colWidths=[12*cm, 5*cm])
+    ft.setStyle(TableStyle([("ALIGN",(1,0),(1,0),"RIGHT"),("LEFTPADDING",(0,0),(-1,-1),0)]))
+    story.append(ft)
 
     doc.build(story)
     buf.seek(0)
     return buf
+
 
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
@@ -699,6 +783,14 @@ elif step == 7:
             st.session_state.step = 1; st.rerun()
         st.stop()
 
+    # ── MEDIAN / MEAN TOGGLE ──────────────────────────────────────────────────
+    col_toggle, _ = st.columns([2,3])
+    with col_toggle:
+        use_median = st.toggle("Use median (recommended)", value=True,
+            help="Median ignores outlier posts and shows your *typical* performance. Mean (average) includes viral spikes — useful to see ceiling, but can be misleading.")
+    agg_label = "Median" if use_median else "Average"
+    agg_fn = lambda s: s.median() if use_median else s.mean()
+
     # Aggregates
     df_stats_m = df_stats.copy()
     df_stats_m["Month"] = df_stats_m["Datum"].dt.to_period("M").astype(str)
@@ -709,9 +801,13 @@ elif step == 7:
     monthly["Engagement"] = (monthly["Engagement"]*100).round(2)
     d1 = df_stats["Datum"].min().strftime("%b %Y")
     d2 = df_stats["Datum"].max().strftime("%b %Y")
-    avg_eng = df_posts[df_posts["Engagement_pct"]>0]["Engagement_pct"].median()
+    valid_posts = df_posts[df_posts["Engagement_pct"]>0]
+    avg_eng = agg_fn(valid_posts["Engagement_pct"])
     ppw = len(df_posts)/max((df_posts["Aangemaakt"].max()-df_posts["Aangemaakt"].min()).days/7,1)
     evb = avg_eng - bench_eng
+    evb_rel = (evb / bench_eng * 100) if bench_eng > 0 else 0
+    evb_sign = "+" if evb >= 0 else ""
+    evb_label = f"{'Above' if evb>=0 else 'Below'} benchmark by {abs(evb):.1f}pp ({evb_sign}{evb_rel:.0f}%)"
     freq_ok = ppw >= float(bench["frequency"].split("x")[0].split("-")[0])
     best_day = df_posts.groupby("Day")["Engagement_pct"].mean().idxmax() if len(df_posts) else "—"
 
@@ -720,7 +816,7 @@ elif step == 7:
     st.markdown("---")
 
     k1,k2,k3,k4 = st.columns(4)
-    with k1: st.markdown(kpi("Median engagement",f"{avg_eng:.1f}%",f"{'Above' if evb>=0 else 'Below'} benchmark by {abs(evb):.1f}%",evb>=0,f"{bench_eng}% ({sector})"),unsafe_allow_html=True)
+    with k1: st.markdown(kpi(f"{agg_label} engagement",f"{avg_eng:.1f}%",evb_label,evb>=0,f"Benchmark: {bench_eng}% ({sector})"),unsafe_allow_html=True)
     with k2: st.markdown(kpi("Total views",f"{int(monthly['Views'].sum()):,}".replace(",","."),f"{d1} – {d2}"),unsafe_allow_html=True)
     with k3: st.markdown(kpi("Posts per week",f"{ppw:.1f}",f"{'On track' if freq_ok else 'Below'} — benchmark: {bench['frequency']}",freq_ok),unsafe_allow_html=True)
     with k4: st.markdown(kpi("Best day",best_day,"based on your post history"),unsafe_allow_html=True)
@@ -740,7 +836,7 @@ elif step == 7:
         st.markdown("")
 
         day_data = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)]
-        day_eng = day_data.groupby("Day").agg(G=("Engagement_pct","median"), cnt=("Engagement_pct","count")).reset_index()
+        day_eng = day_data.groupby("Day").agg(G=("Engagement_pct", agg_fn if use_median else "mean"), cnt=("Engagement_pct","count")).reset_index()
         day_eng = day_eng[day_eng["cnt"] >= 3]
         best_day_ins = day_eng.loc[day_eng["G"].idxmax(),"Day"] if len(day_eng)>0 else "—"
         best_day_score = day_eng["G"].max() if len(day_eng)>0 else 0
@@ -755,7 +851,7 @@ elif step == 7:
         else:
             reach_drop = 0; trend_up = True
 
-        type_eng = df_posts[df_posts["Weergaven"]>0].groupby("Type_content")["Engagement_pct"].median().sort_values(ascending=False)
+        type_eng = df_posts[df_posts["Weergaven"]>0].groupby("Type_content")["Engagement_pct"].apply(agg_fn).sort_values(ascending=False)
         best_type = type_eng.index[0] if len(type_eng)>0 else "—"
         best_type_score = type_eng.iloc[0] if len(type_eng)>0 else 0
         top_post = df_posts.nlargest(1,"Weergaven").iloc[0] if len(df_posts)>0 else None
@@ -763,12 +859,12 @@ elif step == 7:
         cards = []
         # 1. Engagement
         if evb >= 0:
-            cards.append(insight_card("📈","Engagement",f"Your median engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{evb:.1f}% above</strong> the {sector} benchmark of {bench_eng}%. Your content is resonating well with your audience.","good"))
+            cards.append(insight_card("📈","Engagement",f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{abs(evb):.1f} percentage points above</strong> the {sector} benchmark of {bench_eng}% (that is <strong>{evb_rel:.0f}% better</strong> than average). Your content is resonating well with your audience.","good"))
         else:
-            cards.append(insight_card("📉","Engagement",f"Your median engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{abs(evb):.1f}% below</strong> the {sector} benchmark of {bench_eng}%. There is room to improve how your content connects with your audience.","warn"))
+            cards.append(insight_card("📉","Engagement",f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — <strong>{abs(evb):.1f} percentage points below</strong> the {sector} benchmark of {bench_eng}% ({abs(evb_rel):.0f}% below average). There is room to improve how your content connects with your audience.","warn"))
         # 2. Best day
         if best_day_ins != "—":
-            cards.append(insight_card("📅","Best day to post",f"<strong>{best_day_ins}</strong> is your strongest day with a median engagement of <strong>{best_day_score:.1f}%</strong>. Only <strong>{pct_on_best:.0f}%</strong> of your posts go out on that day. Shifting more of your key content to {best_day_ins} could meaningfully lift your results.","good" if pct_on_best>=20 else "warn"))
+            cards.append(insight_card("📅","Best day to post",f"<strong>{best_day_ins}</strong> is your strongest day with a {agg_label.lower()} engagement of <strong>{best_day_score:.1f}%</strong>. Only <strong>{pct_on_best:.0f}%</strong> of your posts go out on that day. Shifting more of your key content to {best_day_ins} could meaningfully lift your results.","good" if pct_on_best>=20 else "warn"))
         # 3. Frequency
         freq_msg = "On track - consistency is one of the biggest drivers of LinkedIn reach." if freq_ok else "Posting more consistently could significantly improve your organic reach."
         cards.append(insight_card("🗓️","Posting frequency",f"You are posting <strong>{ppw:.1f} times per week</strong>. The benchmark for {sector} is <strong>{bench['frequency']}</strong>. {freq_msg}","good" if freq_ok else "warn"))
@@ -781,7 +877,7 @@ elif step == 7:
             cards.append(insight_card("📊","Reach trend","Your reach has been relatively stable. To break into higher reach territory, consider experimenting with new content formats or posting on your strongest days more consistently.","neutral"))
         # 5. Content type
         if best_type != "—":
-            cards.append(insight_card("✍️","Best content type",f"<strong>{best_type}</strong> posts generate your highest median engagement at <strong>{best_type_score:.1f}%</strong>. If you are not already leaning into this format, it is worth doing more of it.","good"))
+            cards.append(insight_card("✍️","Best content type",f"<strong>{best_type}</strong> posts generate your highest {agg_label.lower()} engagement at <strong>{best_type_score:.1f}%</strong>. If you are not already leaning into this format, it is worth doing more of it.","good"))
         # 6. Top post
         if top_post is not None:
             tv = f"{int(top_post['Weergaven']):,}".replace(",",".")
@@ -804,7 +900,7 @@ elif step == 7:
         ce,cr = st.columns(2)
         with ce:
             st.markdown('<p class="section-head">Engagement by day</p>', unsafe_allow_html=True)
-            days_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(G=("Engagement_pct","median"),cnt=("Engagement_pct","count")).reset_index()
+            days_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(G=("Engagement_pct", agg_fn if use_median else "mean"),cnt=("Engagement_pct","count")).reset_index()
             ds = days_all[days_all["cnt"]>=3].sort_values("G",ascending=True)
             fig_d = go.Figure(go.Bar(x=ds["G"].round(2),y=ds["Day"].map(DAG_EN),orientation="h",marker_color=RED,text=ds["G"].apply(lambda v:f"{v:.2f}%"),textposition="outside"))
             fig_d.update_layout(**bl(height=220),xaxis=dict(showgrid=False,visible=False),yaxis=dict(showgrid=False))
@@ -812,12 +908,12 @@ elif step == 7:
             st.plotly_chart(fig_d,use_container_width=True)
         with cr:
             st.markdown('<p class="section-head">Reach by day</p>', unsafe_allow_html=True)
-            dr_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(G=("Weergaven","median"),cnt=("Weergaven","count")).reset_index()
+            dr_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(G=("Weergaven", agg_fn if use_median else "mean"),cnt=("Weergaven","count")).reset_index()
             dr = dr_all[dr_all["cnt"]>=3].sort_values("G",ascending=True)
             fig_r = go.Figure(go.Bar(x=dr["G"].round(0),y=dr["Day"].map(DAG_EN),orientation="h",marker_color=BLUE,text=dr["G"].apply(lambda v:f"{int(v):,}".replace(",",".")),textposition="outside"))
             fig_r.update_layout(**bl(height=220),xaxis=dict(showgrid=False,visible=False),yaxis=dict(showgrid=False))
             st.plotly_chart(fig_r,use_container_width=True)
-        st.caption("Both charts use median values, not averages. This gives a more reliable picture of your typical post.")
+        st.caption(f"Both charts use {agg_label.lower()} values. Toggle the switch above the dashboard to switch between median and average.")
         st.markdown('<p class="section-head">Top posts</p>', unsafe_allow_html=True)
         t1,t2 = st.tabs(["Most views","Highest engagement"])
         with t1: post_table(df_posts.sort_values("Weergaven",ascending=False).head(10),bench_eng)
@@ -839,7 +935,7 @@ elif step == 7:
         funnel_sorted = funnel_df.sort_values(sort_map[sort_col], ascending=False).reset_index(drop=True)
 
         # Funnel summary KPIs
-        avg_ctr = funnel_df["CTR_pct"].median()
+        avg_ctr = agg_fn(funnel_df["CTR_pct"])
         total_clicks = int(funnel_df["Klikken"].sum())
         total_views = int(funnel_df["Weergaven"].sum())
         high_reach_low_ctr = funnel_df[
@@ -1123,7 +1219,11 @@ elif step == 7:
                     best_day=best_day,
                     top_posts_df=top_posts_for_pdf,
                     funnel_df=funnel_for_pdf,
+                    monthly_df=monthly,
+                    agg_label=agg_label,
                     diagnosis_text=diagnosis_for_pdf,
+                    total_views=int(monthly["Views"].sum()),
+                    total_clicks=int(funnel_for_pdf["Klikken"].sum()) if len(funnel_for_pdf) > 0 else 0,
                 )
                 fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
                 st.download_button(
