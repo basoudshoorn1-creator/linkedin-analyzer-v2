@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import io, json, re
 from anthropic import Anthropic
 from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
+from reportlab.lib import colors as rl_colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
@@ -318,10 +318,10 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
                             leftMargin=2.2*cm, rightMargin=2.2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
 
-    ORANGE = colors.HexColor("#FB8500")
-    DARK   = colors.HexColor("#0D1B2A")
-    CREAM  = colors.HexColor("#EAF4FB")
-    GREY   = colors.HexColor("#888888")
+    ORANGE = rl_colors.HexColor("#FB8500")
+    DARK   = rl_colors.HexColor("#0D1B2A")
+    CREAM  = rl_colors.HexColor("#EAF4FB")
+    GREY   = rl_colors.HexColor("#888888")
 
     styles = getSampleStyleSheet()
     h1 = ParagraphStyle("h1", fontSize=22, textColor=DARK, fontName="Helvetica-Bold",
@@ -361,12 +361,12 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
     kpi_table = Table(kpi_data, colWidths=[5.5*cm, 4.5*cm, 7*cm])
     kpi_table.setStyle(TableStyle([
         ("BACKGROUND",   (0,0), (-1,0), DARK),
-        ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+        ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
         ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
         ("FONTSIZE",     (0,0), (-1,-1), 8.5),
         ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F5F9FC")]),
-        ("GRID",         (0,0), (-1,-1), 0.5, colors.HexColor("#E0E0E0")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [rl_colors.white, rl_colors.HexColor("#F5F9FC")]),
+        ("GRID",         (0,0), (-1,-1), 0.5, rl_colors.HexColor("#E0E0E0")),
         ("TOPPADDING",   (0,0), (-1,-1), 5),
         ("BOTTOMPADDING",(0,0), (-1,-1), 5),
         ("LEFTPADDING",  (0,0), (-1,-1), 7),
@@ -396,12 +396,12 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
         f_table = Table(funnel_data, colWidths=[8*cm, 2.2*cm, 2.2*cm, 2*cm, 2.6*cm])
         f_table.setStyle(TableStyle([
             ("BACKGROUND",   (0,0), (-1,0), DARK),
-            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
             ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
             ("FONTSIZE",     (0,0), (-1,-1), 8),
             ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#F5F9FC")]),
-            ("GRID",         (0,0), (-1,-1), 0.4, colors.HexColor("#E0E0E0")),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white, rl_colors.HexColor("#F5F9FC")]),
+            ("GRID",         (0,0), (-1,-1), 0.4, rl_colors.HexColor("#E0E0E0")),
             ("TOPPADDING",   (0,0), (-1,-1), 4),
             ("BOTTOMPADDING",(0,0), (-1,-1), 4),
             ("LEFTPADDING",  (0,0), (-1,-1), 6),
@@ -424,12 +424,12 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
         tp_table = Table(tp_data, colWidths=[8.5*cm, 2.5*cm, 2.5*cm, 3.5*cm])
         tp_table.setStyle(TableStyle([
             ("BACKGROUND",   (0,0), (-1,0), ORANGE),
-            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("TEXTCOLOR",    (0,0), (-1,0), rl_colors.white),
             ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
             ("FONTSIZE",     (0,0), (-1,-1), 8),
             ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#FFF8F0")]),
-            ("GRID",         (0,0), (-1,-1), 0.4, colors.HexColor("#E0E0E0")),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white, rl_colors.HexColor("#FFF8F0")]),
+            ("GRID",         (0,0), (-1,-1), 0.4, rl_colors.HexColor("#E0E0E0")),
             ("TOPPADDING",   (0,0), (-1,-1), 4),
             ("BOTTOMPADDING",(0,0), (-1,-1), 4),
             ("LEFTPADDING",  (0,0), (-1,-1), 6),
@@ -1084,7 +1084,7 @@ elif step == 7:
                     p_str = str(p).lower().strip()
                     c_str = company.lower().strip() if company else ""
                     is_own = c_str and (c_str in p_str or p_str in c_str)
-                    colors.append(RED if is_own else BLUE)
+                    rl_colors.append(RED if is_own else BLUE)
                 fig = go.Figure(go.Bar(x=ds2[metric],y=ds2["Pagina"],orientation="h",
                     marker=dict(color=colors,line=dict(width=0)),
                     text=ds2[metric],textposition="outside",textfont=dict(size=12)))
