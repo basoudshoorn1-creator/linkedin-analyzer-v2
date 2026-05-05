@@ -313,65 +313,93 @@ Direct and professional. Do not rewrite the post. Plain text only."""
 
 DAG_NL_PDF = {"Monday":"Ma","Tuesday":"Di","Wednesday":"Wo","Thursday":"Do","Friday":"Vr","Saturday":"Za","Sunday":"Zo"}
 
-def fig_to_png(fig, width=680, height=280):
-    """Export a Plotly figure to PNG bytes."""
-    return fig.to_image(format="png", width=width, height=height, scale=2)
+def _mpl_bar_h(labels, values, color, title, unit=""):
+    """Horizontal bar chart via matplotlib — returns PNG bytes."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(5, max(2.5, len(labels)*0.45)))
+    bars = ax.barh(labels, values, color=color, height=0.55)
+    ax.set_title(title, fontsize=11, fontweight="bold", color="#0D1B2A", pad=8)
+    ax.set_xlim(0, max(values)*1.25 if max(values) > 0 else 1)
+    ax.axis("off")
+    for bar, val in zip(bars, values):
+        ax.text(val + max(values)*0.02, bar.get_y() + bar.get_height()/2,
+                f"{val:.2f}%" if unit=="%" else f"{int(val):,}".replace(",","."),
+                va="center", fontsize=9, color="#0D1B2A")
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=9)
+    ax.yaxis.set_visible(True)
+    fig.tight_layout()
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); plt.close(fig)
+    buf.seek(0); return buf.read()
 
-def build_chart_images(df_posts, monthly, agg_fn, agg_label, DARK, ORANGE, BLUE, RED):
-    """Build all dashboard charts as PNG bytes dicts."""
+def _mpl_bar_v(x_labels, values, color, title, unit=""):
+    """Vertical bar chart via matplotlib — returns PNG bytes."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    bars = ax.bar(x_labels, values, color=color, width=0.55)
+    ax.set_title(title, fontsize=11, fontweight="bold", color="#0D1B2A", pad=8)
+    ax.set_ylim(0, max(values)*1.25 if max(values) > 0 else 1)
+    for bar, val in zip(bars, values):
+        lbl = f"{val:.1f}%" if unit=="%" else (f"{val/1000:.1f}k" if val >= 1000 else str(int(val)))
+        ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+max(values)*0.01,
+                lbl, ha="center", va="bottom", fontsize=8, color="#0D1B2A")
+    ax.tick_params(axis="x", rotation=45, labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+    ax.yaxis.grid(True, color="#f0f0f0"); ax.set_axisbelow(True)
+    fig.tight_layout()
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); plt.close(fig)
+    buf.seek(0); return buf.read()
+
+def _mpl_scatter(x_vals, y_vals, labels, title):
+    """Scatter chart via matplotlib — returns PNG bytes."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    ax.scatter(x_vals, y_vals, color="#FB8500", alpha=0.7, s=50, edgecolors="#0D1B2A", linewidths=0.5)
+    ax.set_title(title, fontsize=11, fontweight="bold", color="#0D1B2A", pad=8)
+    ax.set_xlabel("Views", fontsize=9); ax.set_ylabel("CTR %", fontsize=9)
+    ax.tick_params(labelsize=8)
+    ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+    ax.yaxis.grid(True, color="#f0f0f0"); ax.xaxis.grid(True, color="#f0f0f0"); ax.set_axisbelow(True)
+    fig.tight_layout()
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); plt.close(fig)
+    buf.seek(0); return buf.read()
+
+def build_chart_images(df_posts, monthly, agg_fn, agg_label, **kwargs):
+    """Build all dashboard charts as PNG bytes dicts using matplotlib."""
     charts = {}
-
-    # 1. Monthly views bar
-    fig_mv = go.Figure(go.Bar(
-        x=monthly["Month"], y=monthly["Views"],
-        marker_color=DARK, opacity=.85,
-        text=monthly["Views"].apply(lambda v: f"{v/1000:.1f}k" if v >= 1000 else str(int(v))),
-        textposition="outside", textfont=dict(size=10)
-    ))
-    fig_mv.update_layout(
-        height=260, margin=dict(l=10,r=10,t=30,b=60), paper_bgcolor="white", plot_bgcolor="white",
-        title=dict(text=f"Monthly Views", font=dict(size=13, color=DARK)),
-        xaxis=dict(tickangle=-45, showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
-        bargap=.35, font=dict(family="sans-serif", size=11)
-    )
-    charts["monthly_views"] = fig_to_png(fig_mv)
-
-    # 2. Monthly engagement line
-    fig_me = go.Figure(go.Scatter(
-        x=monthly["Month"], y=monthly["Engagement"],
-        mode="lines+markers+text",
-        line=dict(color=ORANGE, width=2.5),
-        marker=dict(size=7, color=ORANGE),
-        text=monthly["Engagement"].apply(lambda v: f"{v:.1f}%"),
-        textposition="top center", textfont=dict(size=10)
-    ))
-    fig_me.update_layout(
-        height=260, margin=dict(l=10,r=10,t=30,b=60), paper_bgcolor="white", plot_bgcolor="white",
-        title=dict(text=f"Monthly Engagement Rate (%)", font=dict(size=13, color=DARK)),
-        xaxis=dict(tickangle=-45, showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
-        font=dict(family="sans-serif", size=11)
-    )
-    charts["monthly_engagement"] = fig_to_png(fig_me)
-
-    # 3. Engagement by day (horizontal bar)
     DAG_EN = {"Monday":"Mon","Tuesday":"Tue","Wednesday":"Wed","Thursday":"Thu","Friday":"Fri","Saturday":"Sat","Sunday":"Sun"}
+
+    # 1. Monthly views
+    if len(monthly) > 0:
+        charts["monthly_views"] = _mpl_bar_v(
+            monthly["Month"].tolist(), monthly["Views"].tolist(),
+            "#0D1B2A", "Monthly Views"
+        )
+
+    # 2. Monthly engagement
+    if len(monthly) > 0:
+        charts["monthly_engagement"] = _mpl_bar_v(
+            monthly["Month"].tolist(), monthly["Engagement"].tolist(),
+            "#FB8500", f"Monthly Engagement Rate (%)", unit="%"
+        )
+
+    # 3. Engagement by day
     days_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(
         G=("Engagement_pct", agg_fn), cnt=("Engagement_pct","count")
     ).reset_index()
     ds = days_all[days_all["cnt"]>=2].sort_values("G", ascending=True)
     if len(ds) > 0:
-        fig_de = go.Figure(go.Bar(
-            x=ds["G"].round(2), y=ds["Day"].map(DAG_EN),
-            orientation="h", marker_color=RED,
-            text=ds["G"].apply(lambda v: f"{v:.2f}%"), textposition="outside"
-        ))
-        fig_de.update_layout(
-            height=240, margin=dict(l=10,r=60,t=30,b=20), paper_bgcolor="white", plot_bgcolor="white",
-            title=dict(text=f"{agg_label} Engagement by Day", font=dict(size=13, color=DARK)),
-            xaxis=dict(showgrid=False, visible=False), yaxis=dict(showgrid=False),
-            font=dict(family="sans-serif", size=11)
+        charts["engagement_by_day"] = _mpl_bar_h(
+            ds["Day"].map(DAG_EN).tolist(), ds["G"].round(2).tolist(),
+            "#FB8500", f"{agg_label} Engagement by Day", unit="%"
         )
-        charts["engagement_by_day"] = fig_to_png(fig_de, height=240)
 
     # 4. Reach by day
     dr_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(
@@ -379,37 +407,19 @@ def build_chart_images(df_posts, monthly, agg_fn, agg_label, DARK, ORANGE, BLUE,
     ).reset_index()
     dr = dr_all[dr_all["cnt"]>=2].sort_values("G", ascending=True)
     if len(dr) > 0:
-        fig_dr = go.Figure(go.Bar(
-            x=dr["G"].round(0), y=dr["Day"].map(DAG_EN),
-            orientation="h", marker_color=BLUE,
-            text=dr["G"].apply(lambda v: f"{int(v):,}".replace(",",".")), textposition="outside"
-        ))
-        fig_dr.update_layout(
-            height=240, margin=dict(l=10,r=60,t=30,b=20), paper_bgcolor="white", plot_bgcolor="white",
-            title=dict(text=f"{agg_label} Reach by Day", font=dict(size=13, color=DARK)),
-            xaxis=dict(showgrid=False, visible=False), yaxis=dict(showgrid=False),
-            font=dict(family="sans-serif", size=11)
+        charts["reach_by_day"] = _mpl_bar_h(
+            dr["Day"].map(DAG_EN).tolist(), dr["G"].round(0).tolist(),
+            "#8ECAE6", f"{agg_label} Reach by Day"
         )
-        charts["reach_by_day"] = fig_to_png(fig_dr, height=240)
 
-    # 5. CTR funnel scatter
+    # 5. CTR scatter
     funnel = df_posts[df_posts["Weergaven"]>0].copy()
     funnel["CTR_pct"] = (funnel["Klikken"] / funnel["Weergaven"] * 100).round(3)
     if len(funnel) > 0:
-        fig_f = go.Figure(go.Scatter(
-            x=funnel["Weergaven"], y=funnel["CTR_pct"],
-            mode="markers",
-            marker=dict(size=8, color=ORANGE, opacity=0.7, line=dict(width=1, color=DARK)),
-            text=funnel["Title_short"], hovertemplate="%{text}<br>Views: %{x}<br>CTR: %{y:.2f}%"
-        ))
-        fig_f.update_layout(
-            height=260, margin=dict(l=10,r=10,t=30,b=40), paper_bgcolor="white", plot_bgcolor="white",
-            title=dict(text="Reach vs. Click Rate (CTR)", font=dict(size=13, color=DARK)),
-            xaxis=dict(title="Views", showgrid=True, gridcolor="#f0f0f0"),
-            yaxis=dict(title="CTR %", showgrid=True, gridcolor="#f0f0f0"),
-            font=dict(family="sans-serif", size=11)
+        charts["ctr_scatter"] = _mpl_scatter(
+            funnel["Weergaven"].tolist(), funnel["CTR_pct"].tolist(),
+            funnel["Title_short"].tolist(), "Reach vs. Click Rate (CTR)"
         )
-        charts["ctr_scatter"] = fig_to_png(fig_f)
 
     return charts
 
@@ -1019,12 +1029,12 @@ elif step == 7:
             cards.append(("good", "📈", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
                 f"<strong>{abs(evb):.1f}pp above</strong> the {sector} benchmark of {bench_eng}% "
-                f"(<strong>{evb_rel:.0f}% better</strong> than average)."))
+                f"(<strong>{evb_rel:.0f}% better than the benchmark</strong>)."))
         else:
             cards.append(("warn", "📉", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
                 f"<strong>{abs(evb):.1f}pp below</strong> the {sector} benchmark of {bench_eng}% "
-                f"({abs(evb_rel):.0f}% below average). There is room to improve how your content connects with your audience."))
+                f"({abs(evb_rel):.0f}% below benchmark). There is room to improve how your content connects with your audience."))
 
         # 2. Funnel: reach vs action
         _converter_txt = (
