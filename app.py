@@ -1062,7 +1062,7 @@ elif step == 7:
             st.rerun()
     st.markdown("---")
 
-    tab_names = ["💡 Insights","📊 Content","✏️ Write a post"]
+    tab_names = ["💡 Insights","📊 Content","📅 Compare Periods","✏️ Write a post"]
     if fol_growth is not None: tab_names.append("👥 Followers")
     if vis_data is not None: tab_names.append("👁 Visitors")
     if df_comp is not None: tab_names.append("🏆 Competitors")
@@ -1289,7 +1289,201 @@ elif step == 7:
         with t1: post_table(df_posts.sort_values("Weergaven",ascending=False).head(10),bench_eng)
         with t2: post_table(df_posts[df_posts["Engagement_pct"]>0].sort_values("Engagement_pct",ascending=False).head(10),bench_eng)
 
-    # ── POST FUNNEL ───────────────────────────────────────────────────────────
+    # ── COMPARE PERIODS ───────────────────────────────────────────────────────
+    with tm["📅 Compare Periods"]:
+        st.markdown("#### Compare two periods")
+        st.markdown("See exactly what changed — before vs. after a campaign, Q1 vs. Q2, or any two windows you choose.")
+
+        post_min = df_posts["Aangemaakt"].min().date()
+        post_max = df_posts["Aangemaakt"].max().date()
+        total_days = (post_max - post_min).days
+
+        if total_days < 14:
+            st.warning("Not enough data to compare periods. Upload a longer export (at least 2 weeks).")
+        else:
+            mid = post_min + (post_max - post_min) // 2
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("**Period A**")
+                pa = st.date_input("Period A", value=(post_min, mid),
+                                   min_value=post_min, max_value=post_max,
+                                   key="period_a")
+            with col_b:
+                st.markdown("**Period B**")
+                pb = st.date_input("Period B", value=(mid, post_max),
+                                   min_value=post_min, max_value=post_max,
+                                   key="period_b")
+
+            # Validate
+            valid = (isinstance(pa, (list,tuple)) and len(pa)==2 and
+                     isinstance(pb, (list,tuple)) and len(pb)==2)
+            if not valid:
+                st.info("Select a start and end date for both periods.")
+                st.stop()
+
+            pa_start, pa_end = pd.Timestamp(pa[0]), pd.Timestamp(pa[1])
+            pb_start, pb_end = pd.Timestamp(pb[0]), pd.Timestamp(pb[1])
+
+            df_a = df_posts[(df_posts["Aangemaakt"] >= pa_start) & (df_posts["Aangemaakt"] <= pa_end)]
+            df_b = df_posts[(df_posts["Aangemaakt"] >= pb_start) & (df_posts["Aangemaakt"] <= pb_end)]
+
+            if len(df_a) < 2 or len(df_b) < 2:
+                st.warning("One of the periods has too few posts (minimum 2). Adjust your date range.")
+            else:
+                def period_stats(df):
+                    days = max((df["Aangemaakt"].max() - df["Aangemaakt"].min()).days, 1)
+                    eng  = agg_fn(df[df["Engagement_pct"]>0]["Engagement_pct"])
+                    ppw  = len(df) / max(days/7, 1)
+                    views_med = agg_fn(df["Weergaven"])
+                    total_views = int(df["Weergaven"].sum())
+                    total_clicks = int(df["Klikken"].sum())
+                    ctr  = (total_clicks / total_views * 100) if total_views > 0 else 0
+                    best_day = df.groupby("Day")["Engagement_pct"].mean().idxmax() if len(df)>0 else "—"
+                    top_type = df.groupby("Type_content")["Engagement_pct"].apply(agg_fn).idxmax() if len(df)>0 else "—"
+                    return dict(n=len(df), eng=eng, ppw=ppw, views_med=views_med,
+                                total_views=total_views, total_clicks=total_clicks,
+                                ctr=ctr, best_day=best_day, top_type=top_type)
+
+                sa = period_stats(df_a)
+                sb = period_stats(df_b)
+
+                def delta(a, b, fmt=".1f", suffix="", higher_is_good=True):
+                    diff = b - a
+                    pct  = (diff / a * 100) if a != 0 else 0
+                    arrow = "↑" if diff > 0 else ("↓" if diff < 0 else "→")
+                    good  = (diff > 0) == higher_is_good
+                    color = "#057642" if good else "#C0392B"
+                    sign  = "+" if diff > 0 else ""
+                    return f'<span style="color:{color};font-weight:700">{arrow} {sign}{diff:{fmt}}{suffix} ({sign}{pct:.0f}%)</span>'
+
+                st.markdown("")
+
+                # ── COMPARISON TABLE ──────────────────────────────────────────
+                label_a = f"{pa[0].strftime('%d %b')} – {pa[1].strftime('%d %b %Y')}"
+                label_b = f"{pb[0].strftime('%d %b')} – {pb[1].strftime('%d %b %Y')}"
+
+                rows = [
+                    ("Posts published",       f"{sa['n']}",                      f"{sb['n']}",                      delta(sa['n'],    sb['n'],    fmt="d")),
+                    ("Posts per week",         f"{sa['ppw']:.1f}x",               f"{sb['ppw']:.1f}x",               delta(sa['ppw'],  sb['ppw'],  fmt=".1f", suffix="x")),
+                    (f"{agg_label} engagement",f"{sa['eng']:.2f}%",               f"{sb['eng']:.2f}%",               delta(sa['eng'],  sb['eng'],  fmt=".2f", suffix="%")),
+                    (f"{agg_label} views/post",f"{sa['views_med']:,.0f}".replace(",","."), f"{sb['views_med']:,.0f}".replace(",","."), delta(sa['views_med'], sb['views_med'], fmt=".0f")),
+                    ("Total views",            f"{sa['total_views']:,}".replace(",","."), f"{sb['total_views']:,}".replace(",","."), delta(sa['total_views'], sb['total_views'], fmt=".0f")),
+                    ("Total clicks",           f"{sa['total_clicks']:,}".replace(",","."), f"{sb['total_clicks']:,}".replace(",","."), delta(sa['total_clicks'], sb['total_clicks'], fmt=".0f")),
+                    ("Overall CTR",            f"{sa['ctr']:.2f}%",               f"{sb['ctr']:.2f}%",               delta(sa['ctr'],  sb['ctr'],  fmt=".2f", suffix="%")),
+                    ("Best posting day",       sa['best_day'],                    sb['best_day'],                    ""),
+                    ("Top content type",       sa['top_type'],                    sb['top_type'],                    ""),
+                ]
+
+                header_html = f"""
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<thead>
+<tr>
+  <th style="text-align:left;padding:10px 12px;background:#0D1B2A;color:white;border-radius:6px 0 0 0;width:28%">METRIC</th>
+  <th style="text-align:center;padding:10px 12px;background:#0D1B2A;color:white;width:22%">A · {label_a}</th>
+  <th style="text-align:center;padding:10px 12px;background:#0D1B2A;color:white;width:22%">B · {label_b}</th>
+  <th style="text-align:center;padding:10px 12px;background:#0D1B2A;color:white;border-radius:0 6px 0 0;width:28%">CHANGE (A → B)</th>
+</tr>
+</thead>
+<tbody>"""
+                for i, (metric, va, vb, chg) in enumerate(rows):
+                    bg = "#F5F7FA" if i % 2 == 0 else "#FFFFFF"
+                    header_html += f"""
+<tr style="background:{bg}">
+  <td style="padding:9px 12px;font-weight:600;color:#0D1B2A;">{metric}</td>
+  <td style="padding:9px 12px;text-align:center;color:#444;">{va}</td>
+  <td style="padding:9px 12px;text-align:center;color:#444;">{vb}</td>
+  <td style="padding:9px 12px;text-align:center;">{chg}</td>
+</tr>"""
+                header_html += "</tbody></table>"
+                st.markdown(header_html, unsafe_allow_html=True)
+                st.markdown("")
+
+                # ── SIDE-BY-SIDE CHARTS ───────────────────────────────────────
+                st.markdown('<p class="section-head">Monthly views — A vs B</p>', unsafe_allow_html=True)
+
+                def monthly_views_for(df):
+                    m = df.copy()
+                    m["Month"] = m["Aangemaakt"].dt.to_period("M").astype(str)
+                    return m.groupby("Month")["Weergaven"].sum().reset_index()
+
+                mv_a = monthly_views_for(df_a)
+                mv_b = monthly_views_for(df_b)
+
+                fig_cmp = go.Figure()
+                fig_cmp.add_trace(go.Bar(name=f"A · {label_a}", x=mv_a["Month"], y=mv_a["Weergaven"],
+                                         marker_color=DARK, opacity=0.85))
+                fig_cmp.add_trace(go.Bar(name=f"B · {label_b}", x=mv_b["Month"], y=mv_b["Weergaven"],
+                                         marker_color=RED, opacity=0.85))
+                fig_cmp.update_layout(**bl(height=300), barmode="group",
+                                      legend=dict(orientation="h", y=1.08),
+                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"))
+                st.plotly_chart(fig_cmp, use_container_width=True)
+
+                # Engagement over time
+                st.markdown('<p class="section-head">Engagement per post — A vs B</p>', unsafe_allow_html=True)
+                fig_eng = go.Figure()
+                fig_eng.add_trace(go.Scatter(
+                    x=df_a["Aangemaakt"], y=df_a["Engagement_pct"],
+                    mode="markers", name=f"A · {label_a}",
+                    marker=dict(color=DARK, size=7, opacity=0.7)))
+                fig_eng.add_trace(go.Scatter(
+                    x=df_b["Aangemaakt"], y=df_b["Engagement_pct"],
+                    mode="markers", name=f"B · {label_b}",
+                    marker=dict(color=RED, size=7, opacity=0.7)))
+                fig_eng.update_layout(**bl(height=280),
+                                      legend=dict(orientation="h", y=1.08),
+                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0", title="Engagement %"))
+                st.plotly_chart(fig_eng, use_container_width=True)
+
+                # ── AI INTERPRETATION ─────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### AI interpretation")
+                st.markdown("Let AI explain what changed and why it matters.")
+                api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+                if api_key and st.button("Interpret this comparison", type="primary"):
+                    with st.spinner("Reading the data..."):
+                        try:
+                            client = Anthropic(api_key=api_key)
+                            prompt = f"""You are a LinkedIn analytics expert for {st.session_state.get('sector','a knowledge organisation')}.
+
+Compare these two performance periods:
+
+Period A ({label_a}): {sa['n']} posts, {sa['eng']:.2f}% median engagement, {sa['ppw']:.1f} posts/week, {sa['total_views']:,} views, {sa['ctr']:.2f}% CTR, best day: {sa['best_day']}, top format: {sa['top_type']}
+Period B ({label_b}): {sb['n']} posts, {sb['eng']:.2f}% median engagement, {sb['ppw']:.1f} posts/week, {sb['total_views']:,} views, {sb['ctr']:.2f}% CTR, best day: {sb['best_day']}, top format: {sb['top_type']}
+
+Write a concise, honest 3-paragraph analysis:
+1. What improved and by how much (be specific with numbers)
+2. What got worse or stayed flat, and what might explain it
+3. One clear recommendation based on the comparison
+
+Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). Be direct, no fluff."""
+
+                            resp = client.messages.create(
+                                model="claude-sonnet-4-20250514",
+                                max_tokens=800,
+                                messages=[{"role":"user","content":prompt}]
+                            )
+                            st.session_state["compare_interpretation"] = resp.content[0].text
+                        except Exception as e:
+                            st.error(f"Could not generate interpretation: {e}")
+
+                if "compare_interpretation" in st.session_state:
+                    raw = st.session_state["compare_interpretation"]
+                    raw = re.sub(r"#{1,6}\s*","",raw)
+                    raw = re.sub(r"\*\*(.+?)\*\*",r"<strong>\1</strong>",raw)
+                    if "---ACTIONS---" in raw:
+                        diag, actions = raw.split("---ACTIONS---",1)
+                        st.markdown(f'<div class="ai-box">{diag.strip()}</div>', unsafe_allow_html=True)
+                        st.markdown("**3 next steps**")
+                        for line in actions.strip().splitlines():
+                            line = line.strip()
+                            if line and line[0].isdigit():
+                                st.markdown(f'<div style="background:white;border:1.5px solid #e8e2d8;border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.4rem;font-size:14px;">{line}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="ai-box">{raw}</div>', unsafe_allow_html=True)
+
+    # ── WRITE A POST ──────────────────────────────────────────────────────────
     with tm["✏️ Write a post"]:
         st.markdown("#### Write a post")
         st.markdown("The best posts are written by humans. This just helps you write a better one.")
