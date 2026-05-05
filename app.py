@@ -424,216 +424,302 @@ def build_chart_images(df_posts, monthly, agg_fn, agg_label, **kwargs):
     return charts
 
 
+# ── PDF EXPORT v3 ─────────────────────────────────────────────────────────────
+
 def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, bench_freq,
                  best_day, top_posts_df, funnel_df, monthly_df, agg_label="Median",
-                 diagnosis_text=None, total_views=0, total_clicks=0, chart_images=None):
+                 diagnosis_text=None, total_views=0, total_clicks=0, chart_images=None,
+                 sections=None):
+    """
+    sections: set of strings from:
+      'executive_summary', 'scorecard', 'charts', 'funnel', 'top_posts', 'ai_analysis', 'frequency'
+    """
+    if sections is None:
+        sections = {"executive_summary","scorecard","charts","funnel","top_posts"}
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=2.2*cm, rightMargin=2.2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=1.8*cm, bottomMargin=1.8*cm)
 
-    ORANGE = rl_colors.HexColor("#FB8500")
-    DARK   = rl_colors.HexColor("#0D1B2A")
-    LGREY  = rl_colors.HexColor("#F5F7FA")
-    GREY   = rl_colors.HexColor("#888888")
-    GREEN  = rl_colors.HexColor("#057642")
-    RED_C  = rl_colors.HexColor("#C0392B")
+    ORANGE  = rl_colors.HexColor("#FB8500")
+    DARK    = rl_colors.HexColor("#0D1B2A")
+    LGREY   = rl_colors.HexColor("#F5F7FA")
+    MGREY   = rl_colors.HexColor("#E8ECF0")
+    GREY    = rl_colors.HexColor("#888888")
+    GREEN   = rl_colors.HexColor("#057642")
+    RED_C   = rl_colors.HexColor("#C0392B")
+    BLUE    = rl_colors.HexColor("#8ECAE6")
+    WHITE   = rl_colors.white
 
     evb      = avg_eng - bench_eng
-    evb_rel  = (evb / bench_eng * 100) if bench_eng > 0 else 0
     freq_min = float(bench_freq.split("x")[0].split("-")[0])
     freq_ok  = ppw >= freq_min
     overall_ctr = (total_clicks / total_views * 100) if total_views > 0 else 0
 
-    h1   = ParagraphStyle("h1",   fontSize=24, textColor=DARK,   fontName="Helvetica-Bold", spaceAfter=2,   leading=28)
-    h2   = ParagraphStyle("h2",   fontSize=12, textColor=DARK,   fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=5,  leading=15)
-    h3   = ParagraphStyle("h3",   fontSize=10, textColor=ORANGE, fontName="Helvetica-Bold", spaceBefore=8,  spaceAfter=3,  leading=13)
-    body = ParagraphStyle("body", fontSize=9.5,textColor=DARK,   fontName="Helvetica",      leading=14,     spaceAfter=4)
-    small= ParagraphStyle("small",fontSize=8,  textColor=GREY,   fontName="Helvetica",      leading=11,     spaceAfter=2)
-    exec_= ParagraphStyle("exec", fontSize=10, textColor=DARK,   fontName="Helvetica",      leading=15,     spaceAfter=3, leftIndent=10)
+    # Typography
+    h1    = ParagraphStyle("h1",    fontSize=26, textColor=DARK,   fontName="Helvetica-Bold", spaceAfter=2,   leading=30)
+    h2    = ParagraphStyle("h2",    fontSize=11, textColor=WHITE,  fontName="Helvetica-Bold", spaceAfter=0,   leading=14)
+    body  = ParagraphStyle("body",  fontSize=9.5,textColor=DARK,   fontName="Helvetica",      leading=15,     spaceAfter=4)
+    small = ParagraphStyle("small", fontSize=8,  textColor=GREY,   fontName="Helvetica",      leading=11,     spaceAfter=2)
+    kpi_v = ParagraphStyle("kpi_v", fontSize=18, textColor=DARK,   fontName="Helvetica-Bold", leading=22)
+    kpi_l = ParagraphStyle("kpi_l", fontSize=7.5,textColor=GREY,   fontName="Helvetica-Bold", leading=10,
+                           textTransform="uppercase" if hasattr(ParagraphStyle,"textTransform") else None,
+                           spaceAfter=2)
+    exec_ = ParagraphStyle("exec",  fontSize=9.5,textColor=DARK,   fontName="Helvetica",      leading=15,     spaceAfter=3, leftIndent=8)
+    note  = ParagraphStyle("note",  fontSize=7.5,textColor=GREY,   fontName="Helvetica-Oblique", leading=11,  spaceAfter=2)
 
     story = []
 
-    # HEADER
-    subtitle = f"{company} \u00b7 {sector} \u00b7 {d1} \u2013 {d2} \u00b7 {n_posts} posts" if company else f"{sector} \u00b7 {d1} \u2013 {d2} \u00b7 {n_posts} posts"
+    # ── COVER HEADER ──────────────────────────────────────────────────────────
+    # Orange accent bar
+    header_bar = Table([[""]], colWidths=[17*cm], rowHeights=[0.35*cm])
+    header_bar.setStyle(TableStyle([("BACKGROUND",(0,0),(0,0),ORANGE),("LINEBELOW",(0,0),(0,0),0,WHITE)]))
+    story.append(header_bar)
+    story.append(Spacer(1, 0.5*cm))
+
     story.append(Paragraph("LinkedIn Performance Report", h1))
-    story.append(Paragraph(subtitle, small))
-    story.append(HRFlowable(width="100%", thickness=2.5, color=ORANGE, spaceBefore=6, spaceAfter=12))
+    co_line = f"{company}  ·  " if company else ""
+    story.append(Paragraph(f"{co_line}{sector}  ·  {d1} – {d2}  ·  {n_posts} posts analysed", small))
+    story.append(Spacer(1, 0.4*cm))
 
-    # EXECUTIVE SUMMARY
-    story.append(Paragraph("Executive Summary", h2))
-    if evb >= 0:
-        eng_line = f"Engagement is <b>{abs(evb):.1f}pp above benchmark</b> ({evb_rel:.0f}% better than the {sector} average of {bench_eng}%)"
-        eng_icon = "+"
-    else:
-        eng_line = f"Engagement is <b>{abs(evb):.1f}pp below benchmark</b> ({abs(evb_rel):.0f}% below the {sector} average of {bench_eng}%)"
-        eng_icon = "!"
-    freq_line = f"Posting {ppw:.1f}x per week \u2014 {'on track' if freq_ok else 'below target (benchmark: ' + bench_freq + ')'}"
-    ctr_line  = f"Overall click rate: {overall_ctr:.2f}% ({int(total_clicks):,} clicks from {int(total_views):,} total views)".replace(",",".")
-
-    exec_rows = [
-        [Paragraph(eng_icon, body),   Paragraph(eng_line,  exec_)],
-        [Paragraph("\u2192",  body),  Paragraph(freq_line, exec_)],
-        [Paragraph("\u2192",  body),  Paragraph(ctr_line,  exec_)],
+    # KPI strip — 4 boxes
+    kpi_cells = [
+        [Paragraph(f"{avg_eng:.1f}%", kpi_v), Paragraph(f"{int(total_views):,}".replace(",","."), kpi_v),
+         Paragraph(f"{ppw:.1f}x/wk", kpi_v), Paragraph(best_day, kpi_v)],
+        [Paragraph(f"{agg_label} engagement", small), Paragraph("Total views", small),
+         Paragraph("Posting freq.", small), Paragraph("Best day", small)],
     ]
-    exec_table = Table(exec_rows, colWidths=[0.6*cm, 16.4*cm])
-    exec_table.setStyle(TableStyle([
+    kpi_strip = Table(kpi_cells, colWidths=[4.25*cm]*4)
+    kpi_strip.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,-1), LGREY),
-        ("TOPPADDING",    (0,0), (-1,-1), 6),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-        ("LEFTPADDING",   (0,0), (-1,-1), 8),
+        ("TOPPADDING",    (0,0), (-1,0),  10),
+        ("BOTTOMPADDING", (0,1), (-1,1),  10),
+        ("LEFTPADDING",   (0,0), (-1,-1), 12),
+        ("LINEBEFORE",    (1,0), (-1,-1), 1, MGREY),
+        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
     ]))
-    story.append(exec_table)
-    story.append(Spacer(1, 0.4*cm))
+    story.append(kpi_strip)
+    story.append(Spacer(1, 0.5*cm))
 
-    # SCORECARD
-    story.append(Paragraph("Performance Scorecard", h2))
-    kpi_data = [
-        ["METRIC", "RESULT", "BENCHMARK", "VERDICT"],
-        [f"{agg_label} engagement", f"{avg_eng:.1f}%", f"{bench_eng}%",
-         f"+{evb:.1f}pp (+{evb_rel:.0f}%)" if evb >= 0 else f"{evb:.1f}pp ({evb_rel:.0f}%)"],
-        ["Posts per week",  f"{ppw:.1f}x",        bench_freq, "On track" if freq_ok else "Below target"],
-        ["Best posting day", best_day,             "\u2014",  "Highest engagement day"],
-        ["Overall click rate", f"{overall_ctr:.2f}%", "\u2014",
-         f"{int(total_clicks):,} clicks / {int(total_views):,} views".replace(",",".")],
-        ["Posts analysed",  str(n_posts),          f"{d1} \u2013 {d2}", "\u2014"],
-    ]
-    kpi_style = TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0), DARK),
-        ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
-        ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0,0), (-1,-1), 8.5),
-        ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
-        ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, LGREY]),
-        ("GRID",          (0,0), (-1,-1), 0.4, rl_colors.HexColor("#DDDDDD")),
-        ("TOPPADDING",    (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-        ("LEFTPADDING",   (0,0), (-1,-1), 7),
-    ])
-    for i, row in enumerate(kpi_data[1:], 1):
-        verdict = str(row[3])
-        if verdict.startswith("+") or verdict in ("On track", "Highest engagement day"):
-            kpi_style.add("TEXTCOLOR", (3,i), (3,i), GREEN)
-        elif verdict.startswith("-") or "Below" in verdict:
-            kpi_style.add("TEXTCOLOR", (3,i), (3,i), RED_C)
-    kpi_t = Table(kpi_data, colWidths=[4.5*cm, 3*cm, 3.5*cm, 6*cm])
-    kpi_t.setStyle(kpi_style)
-    story.append(kpi_t)
-    story.append(Spacer(1, 0.4*cm))
+    def section_header(title):
+        """Dark pill header for each section."""
+        t = Table([[Paragraph(title, h2)]], colWidths=[17*cm], rowHeights=[0.65*cm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(0,0), DARK),
+            ("LEFTPADDING",   (0,0),(0,0), 10),
+            ("TOPPADDING",    (0,0),(0,0), 6),
+            ("BOTTOMPADDING", (0,0),(0,0), 6),
+        ]))
+        return t
 
-    # CHARTS
-    if chart_images:
-        story.append(Paragraph("Performance Charts", h2))
+    # ── EXECUTIVE SUMMARY ─────────────────────────────────────────────────────
+    if "executive_summary" in sections:
+        story.append(section_header("Executive Summary"))
+        story.append(Spacer(1, 0.2*cm))
 
-        def add_chart(key, caption_text):
-            if key in chart_images:
-                img_buf = io.BytesIO(chart_images[key])
-                img = RLImage(img_buf, width=17*cm, height=6.5*cm)
-                story.append(img)
-                story.append(Paragraph(caption_text, small))
-                story.append(Spacer(1, 0.3*cm))
+        direction = "above" if evb >= 0 else "below"
+        icon = "↑" if evb >= 0 else "↓"
+        eng_line = (f"{icon} Engagement {direction} benchmark by <b>{abs(evb):.1f}pp</b> "
+                    f"({agg_label}: {avg_eng:.1f}% vs sector benchmark {bench_eng}%)")
+        freq_line = (f"{'✓' if freq_ok else '→'} Posting {ppw:.1f}x per week — "
+                     f"{'on track' if freq_ok else f'below target ({bench_freq})'}")
+        ctr_line  = (f"→ {int(total_clicks):,} clicks from {int(total_views):,} views "
+                     f"— {overall_ctr:.2f}% overall click rate").replace(",",".")
 
-        # Monthly views + engagement side by side
+        exec_rows = [
+            [Paragraph(eng_line,  exec_)],
+            [Paragraph(freq_line, exec_)],
+            [Paragraph(ctr_line,  exec_)],
+        ]
+        exec_t = Table(exec_rows, colWidths=[17*cm])
+        exec_t.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), LGREY),
+            ("ROWBACKGROUNDS",(0,0),(-1,-1), [WHITE, LGREY, WHITE]),
+            ("TOPPADDING",    (0,0),(-1,-1), 7),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 7),
+            ("LEFTPADDING",   (0,0),(-1,-1), 12),
+            ("LINEBELOW",     (0,0),(-1,-2), 0.5, MGREY),
+        ]))
+        story.append(exec_t)
+        story.append(Paragraph(
+            f"Note: benchmark ({bench_eng}%) is a sector average. "
+            f"Your {agg_label.lower()} is calculated from your own post data and is not directly comparable.",
+            note))
+        story.append(Spacer(1, 0.4*cm))
+
+    # ── SCORECARD ─────────────────────────────────────────────────────────────
+    if "scorecard" in sections:
+        story.append(section_header("Performance Scorecard"))
+        story.append(Spacer(1, 0.2*cm))
+
+        kpi_data = [
+            ["METRIC", "YOUR RESULT", "VERDICT"],
+            [f"{agg_label} engagement rate", f"{avg_eng:.1f}%",
+             f"{'Above' if evb>=0 else 'Below'} benchmark by {abs(evb):.1f}pp"],
+            ["Posts per week",  f"{ppw:.1f}x",  "On track" if freq_ok else f"Below — target {bench_freq}"],
+            ["Best posting day", best_day, f"Highest {agg_label.lower()} engagement"],
+            ["Overall click rate", f"{overall_ctr:.2f}%",
+             f"{int(total_clicks):,} clicks / {int(total_views):,} views".replace(",",".")],
+            ["Period analysed", f"{d1} – {d2}", f"{n_posts} posts"],
+        ]
+        sc_style = TableStyle([
+            ("BACKGROUND",    (0,0),(-1,0), DARK),
+            ("TEXTCOLOR",     (0,0),(-1,0), WHITE),
+            ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0),(-1,-1), 8.5),
+            ("FONTNAME",      (0,1),(-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, LGREY]),
+            ("GRID",          (0,0),(-1,-1), 0.3, MGREY),
+            ("TOPPADDING",    (0,0),(-1,-1), 6),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 6),
+            ("LEFTPADDING",   (0,0),(-1,-1), 8),
+        ])
+        for i, row in enumerate(kpi_data[1:], 1):
+            v = str(row[2])
+            if "Above" in v or v == "On track":
+                sc_style.add("TEXTCOLOR", (2,i),(2,i), GREEN)
+            elif "Below" in v:
+                sc_style.add("TEXTCOLOR", (2,i),(2,i), RED_C)
+        sc_t = Table(kpi_data, colWidths=[6*cm, 4*cm, 7*cm])
+        sc_t.setStyle(sc_style)
+        story.append(sc_t)
+        story.append(Spacer(1, 0.4*cm))
+
+    # ── CHARTS ────────────────────────────────────────────────────────────────
+    if "charts" in sections and chart_images:
+        story.append(section_header("Performance Charts"))
+        story.append(Spacer(1, 0.25*cm))
+
         if "monthly_views" in chart_images and "monthly_engagement" in chart_images:
             row = [[
-                RLImage(io.BytesIO(chart_images["monthly_views"]),  width=8.3*cm, height=5.5*cm),
-                RLImage(io.BytesIO(chart_images["monthly_engagement"]), width=8.3*cm, height=5.5*cm),
+                RLImage(io.BytesIO(chart_images["monthly_views"]),      width=8.2*cm, height=5.2*cm),
+                RLImage(io.BytesIO(chart_images["monthly_engagement"]), width=8.2*cm, height=5.2*cm),
             ]]
             t = Table(row, colWidths=[8.5*cm, 8.5*cm])
-            t.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),4)]))
+            t.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(0,-1),6)]))
             story.append(t)
-            story.append(Paragraph("Monthly views (left) and engagement rate (right).", small))
+            story.append(Paragraph("Monthly views (left) · Engagement rate % (right)", note))
             story.append(Spacer(1, 0.3*cm))
 
-        # Day charts side by side
         if "engagement_by_day" in chart_images and "reach_by_day" in chart_images:
             row2 = [[
-                RLImage(io.BytesIO(chart_images["engagement_by_day"]), width=8.3*cm, height=5*cm),
-                RLImage(io.BytesIO(chart_images["reach_by_day"]),      width=8.3*cm, height=5*cm),
+                RLImage(io.BytesIO(chart_images["engagement_by_day"]), width=8.2*cm, height=4.8*cm),
+                RLImage(io.BytesIO(chart_images["reach_by_day"]),      width=8.2*cm, height=4.8*cm),
             ]]
             t2 = Table(row2, colWidths=[8.5*cm, 8.5*cm])
-            t2.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),4)]))
+            t2.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(0,-1),6)]))
             story.append(t2)
-            story.append(Paragraph(f"{agg_label} engagement by day (left) and reach by day (right).", small))
+            story.append(Paragraph(f"{agg_label} engagement by day (left) · {agg_label} reach by day (right)", note))
             story.append(Spacer(1, 0.3*cm))
 
-        # CTR scatter verwijderd — te veel ruis in PDF context
+    # ── FREQUENCY ANALYSIS ────────────────────────────────────────────────────
+    if "frequency" in sections:
+        story.append(section_header("Posting Frequency Analysis"))
+        story.append(Spacer(1, 0.2*cm))
 
-    story.append(Spacer(1, 0.2*cm))
+        if monthly_df is not None and len(monthly_df) > 0:
+            freq_data = [["MONTH", "VIEWS", "ENGAGEMENT %"]]
+            for _, row in monthly_df.iterrows():
+                freq_data.append([
+                    str(row.get("Month","")),
+                    f"{int(row.get('Views',0)):,}".replace(",","."),
+                    f"{row.get('Engagement',0):.1f}%",
+                ])
+            fr_t = Table(freq_data, colWidths=[6*cm, 5.5*cm, 5.5*cm])
+            fr_t.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0),(-1,0), DARK),
+                ("TEXTCOLOR",     (0,0),(-1,0), WHITE),
+                ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",      (0,0),(-1,-1), 8.5),
+                ("FONTNAME",      (0,1),(-1,-1), "Helvetica"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, LGREY]),
+                ("GRID",          (0,0),(-1,-1), 0.3, MGREY),
+                ("TOPPADDING",    (0,0),(-1,-1), 6),
+                ("BOTTOMPADDING", (0,0),(-1,-1), 6),
+                ("LEFTPADDING",   (0,0),(-1,-1), 8),
+            ]))
+            story.append(fr_t)
+        story.append(Spacer(1, 0.4*cm))
 
-    # FUNNEL TABLE
-    story.append(Paragraph("Content Funnel \u2014 Views \u2192 Clicks \u2192 Engagement", h2))
-    story.append(Paragraph(
-        "Sorted by CTR. High views + low CTR = reach without impact. "
-        "Red CTR = high-reach post with below-average click rate.", body))
-    story.append(Spacer(1, 0.15*cm))
+    # ── CONTENT FUNNEL ────────────────────────────────────────────────────────
+    if "funnel" in sections and funnel_df is not None and len(funnel_df) > 0:
+        story.append(section_header("Content Funnel — Views → Clicks → Engagement"))
+        story.append(Spacer(1, 0.2*cm))
+        story.append(Paragraph(
+            "Sorted by click-through rate. Posts in red had high reach but below-median CTR — "
+            "high visibility, low action. These are your vanity metric candidates.", body))
+        story.append(Spacer(1, 0.15*cm))
 
-    if funnel_df is not None and len(funnel_df) > 0:
-        fd = funnel_df.sort_values("CTR_pct", ascending=False).head(12).copy()
+        fd = funnel_df.sort_values("CTR_pct", ascending=False).head(15).copy()
         avg_ctr   = funnel_df["CTR_pct"].median()
         q60_views = funnel_df["Weergaven"].quantile(0.6)
         funnel_data = [["POST", "VIEWS", "CLICKS", "CTR", "ENGAGEMENT"]]
         f_style = TableStyle([
-            ("BACKGROUND",    (0,0), (-1,0), DARK),
-            ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
-            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",      (0,0), (-1,-1), 8),
-            ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, LGREY]),
-            ("GRID",          (0,0), (-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
-            ("TOPPADDING",    (0,0), (-1,-1), 4),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-            ("LEFTPADDING",   (0,0), (-1,-1), 5),
+            ("BACKGROUND",    (0,0),(-1,0), DARK),
+            ("TEXTCOLOR",     (0,0),(-1,0), WHITE),
+            ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0),(-1,-1), 7.5),
+            ("FONTNAME",      (0,1),(-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, LGREY]),
+            ("GRID",          (0,0),(-1,-1), 0.3, MGREY),
+            ("TOPPADDING",    (0,0),(-1,-1), 5),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+            ("LEFTPADDING",   (0,0),(-1,-1), 6),
         ])
         for i, (_, row) in enumerate(fd.iterrows(), 1):
             ctr = row.get("CTR_pct", 0)
             funnel_data.append([
-                str(row.get("Title_short",""))[:50],
+                str(row.get("Title_short",""))[:55],
                 f"{int(row.get('Weergaven',0)):,}".replace(",","."),
                 f"{int(row.get('Klikken',0)):,}".replace(",","."),
                 f"{ctr:.2f}%",
                 f"{row.get('Engagement_pct',0):.2f}%",
             ])
             if ctr < avg_ctr and int(row.get("Weergaven",0)) > q60_views:
-                f_style.add("TEXTCOLOR", (3,i), (3,i), RED_C)
-        f_table = Table(funnel_data, colWidths=[7.5*cm, 2.2*cm, 2.2*cm, 2*cm, 3.1*cm])
+                f_style.add("TEXTCOLOR", (3,i),(3,i), RED_C)
+                f_style.add("FONTNAME",  (3,i),(3,i), "Helvetica-Bold")
+        f_table = Table(funnel_data, colWidths=[7.8*cm, 2*cm, 2*cm, 2*cm, 3.2*cm])
         f_table.setStyle(f_style)
         story.append(f_table)
-    story.append(Spacer(1, 0.4*cm))
+        story.append(Spacer(1, 0.4*cm))
 
-    # TOP POSTS
-    story.append(Paragraph("Top 5 Posts by Engagement", h2))
-    if top_posts_df is not None and len(top_posts_df) > 0:
+    # ── TOP POSTS ─────────────────────────────────────────────────────────────
+    if "top_posts" in sections and top_posts_df is not None and len(top_posts_df) > 0:
+        story.append(section_header("Top 5 Posts by Engagement"))
+        story.append(Spacer(1, 0.2*cm))
+
         tp = top_posts_df.head(5)
         tp_data = [["POST", "DATE", "VIEWS", "CLICKS", "ENGAGEMENT"]]
         for _, row in tp.iterrows():
             tp_data.append([
-                str(row.get("Title_short",""))[:50],
+                str(row.get("Title_short",""))[:55],
                 str(row.get("Aangemaakt",""))[:10],
                 f"{int(row.get('Weergaven',0)):,}".replace(",","."),
                 f"{int(row.get('Klikken',0)):,}".replace(",","."),
                 f"{row.get('Engagement_pct',0):.2f}%",
             ])
-        tp_table = Table(tp_data, colWidths=[7.5*cm, 2*cm, 2*cm, 2*cm, 3.5*cm])
-        tp_table.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0), (-1,0), ORANGE),
-            ("TEXTCOLOR",     (0,0), (-1,0), rl_colors.white),
-            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",      (0,0), (-1,-1), 8),
-            ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
-            ("ROWBACKGROUNDS",(0,1), (-1,-1), [rl_colors.white, rl_colors.HexColor("#FFF8F0")]),
-            ("GRID",          (0,0), (-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
-            ("TOPPADDING",    (0,0), (-1,-1), 4),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-            ("LEFTPADDING",   (0,0), (-1,-1), 5),
+        tp_t = Table(tp_data, colWidths=[7.8*cm, 2*cm, 2*cm, 2*cm, 3.2*cm])
+        tp_t.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(-1,0), ORANGE),
+            ("TEXTCOLOR",     (0,0),(-1,0), WHITE),
+            ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0),(-1,-1), 7.5),
+            ("FONTNAME",      (0,1),(-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, rl_colors.HexColor("#FFF8F0")]),
+            ("GRID",          (0,0),(-1,-1), 0.3, MGREY),
+            ("TOPPADDING",    (0,0),(-1,-1), 5),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+            ("LEFTPADDING",   (0,0),(-1,-1), 6),
         ]))
-        story.append(tp_table)
-    story.append(Spacer(1, 0.4*cm))
+        story.append(tp_t)
+        story.append(Spacer(1, 0.4*cm))
 
-    # AI ANALYSIS
-    if diagnosis_text:
-        story.append(HRFlowable(width="100%", thickness=1.5, color=ORANGE, spaceBefore=4, spaceAfter=10))
-        story.append(Paragraph("AI Strategy Analysis & Action Items", h2))
+    # ── AI ANALYSIS ───────────────────────────────────────────────────────────
+    if "ai_analysis" in sections and diagnosis_text:
+        story.append(section_header("AI Strategy Analysis & Action Items"))
+        story.append(Spacer(1, 0.2*cm))
+
         if "---ACTIONS---" in diagnosis_text:
             diag_part, actions_part = diagnosis_text.split("---ACTIONS---", 1)
             clean_diag = re.sub(r"#{1,6}\s*", "", diag_part)
@@ -641,8 +727,9 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
             for para in clean_diag.strip().splitlines():
                 if para.strip():
                     story.append(Paragraph(para.strip(), body))
-            story.append(Spacer(1, 0.3*cm))
-            story.append(Paragraph("Action Items", h3))
+            story.append(Spacer(1, 0.25*cm))
+            story.append(Paragraph("5 Action Items", ParagraphStyle("h3", fontSize=10, textColor=ORANGE,
+                fontName="Helvetica-Bold", spaceBefore=6, spaceAfter=4, leading=13)))
             action_rows = []
             for line in actions_part.strip().splitlines():
                 line = re.sub(r"#{1,6}\s*", "", line.strip())
@@ -652,8 +739,8 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
             if action_rows:
                 at = Table(action_rows, colWidths=[17*cm])
                 at.setStyle(TableStyle([
-                    ("ROWBACKGROUNDS",(0,0),(-1,-1),[rl_colors.white, LGREY]),
-                    ("GRID",         (0,0),(-1,-1), 0.3, rl_colors.HexColor("#DDDDDD")),
+                    ("ROWBACKGROUNDS",(0,0),(-1,-1),[WHITE, LGREY]),
+                    ("GRID",         (0,0),(-1,-1), 0.3, MGREY),
                     ("TOPPADDING",   (0,0),(-1,-1), 6),
                     ("BOTTOMPADDING",(0,0),(-1,-1), 6),
                     ("LEFTPADDING",  (0,0),(-1,-1), 10),
@@ -666,19 +753,19 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
             for para in clean.strip().splitlines():
                 if para.strip():
                     story.append(Paragraph(para.strip(), body))
-    else:
-        story.append(Paragraph(
-            "Tip: run the AI Strategy Check in the app and regenerate this PDF to include personalised action items.",
-            small))
+        story.append(Spacer(1, 0.4*cm))
 
-    # FOOTER
-    story.append(Spacer(1, 0.8*cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=GREY, spaceAfter=5))
+    # ── FOOTER ────────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 0.6*cm))
+    footer_bar = Table([[""]], colWidths=[17*cm], rowHeights=[0.2*cm])
+    footer_bar.setStyle(TableStyle([("BACKGROUND",(0,0),(0,0),ORANGE)]))
+    story.append(footer_bar)
+    story.append(Spacer(1, 0.15*cm))
     footer_rows = [[
-        Paragraph(f"Generated {datetime.now().strftime('%d %b %Y')} \u00b7 LinkedIn Analyzer v2 \u00b7 linkedin-analyzer-v2.streamlit.app", small),
-        Paragraph(f"Confidential \u2014 {company or sector}", small),
+        Paragraph(f"Generated {datetime.now().strftime('%d %b %Y')} · LinkedIn Analyzer v2 · linkedin-analyzer-v2.streamlit.app", small),
+        Paragraph(f"Confidential — {company or sector}", small),
     ]]
-    ft = Table(footer_rows, colWidths=[12*cm, 5*cm])
+    ft = Table(footer_rows, colWidths=[11.5*cm, 5.5*cm])
     ft.setStyle(TableStyle([("ALIGN",(1,0),(1,0),"RIGHT"),("LEFTPADDING",(0,0),(-1,-1),0)]))
     story.append(ft)
 
@@ -1304,19 +1391,40 @@ elif step == 7:
     # ── PDF EXPORT ────────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("#### 📄 Download your report")
-    st.markdown("A clean PDF summary you can share with your manager or team — no screenshots needed.")
+    st.markdown("Choose what to include, then download a ready-to-share PDF.")
+
+    has_ai = "diagnosis" in st.session_state and st.session_state["diagnosis"]
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        inc_exec    = st.checkbox("Executive Summary",        value=True)
+        inc_score   = st.checkbox("Performance Scorecard",    value=True)
+        inc_charts  = st.checkbox("Performance Charts",       value=True)
+        inc_freq    = st.checkbox("Posting Frequency Table",  value=False)
+    with col_b:
+        inc_funnel  = st.checkbox("Content Funnel",           value=True)
+        inc_top     = st.checkbox("Top 5 Posts",              value=True)
+        inc_ai      = st.checkbox(
+            "AI Strategy & Action Items" + (" ✓" if has_ai else " (run AI analysis first)"),
+            value=has_ai, disabled=not has_ai)
+
+    selected_sections = set()
+    if inc_exec:   selected_sections.add("executive_summary")
+    if inc_score:  selected_sections.add("scorecard")
+    if inc_charts: selected_sections.add("charts")
+    if inc_freq:   selected_sections.add("frequency")
+    if inc_funnel: selected_sections.add("funnel")
+    if inc_top:    selected_sections.add("top_posts")
+    if inc_ai:     selected_sections.add("ai_analysis")
 
     funnel_for_pdf = df_posts[df_posts["Weergaven"] > 0].copy()
     funnel_for_pdf["CTR_pct"] = (funnel_for_pdf["Klikken"] / funnel_for_pdf["Weergaven"] * 100).round(3)
-    funnel_for_pdf = funnel_for_pdf.sort_values("CTR_pct", ascending=False)
-    top_posts_for_pdf = df_posts[df_posts["Engagement_pct"] > 0].sort_values("Engagement_pct", ascending=False)
-    top_posts_for_pdf = top_posts_for_pdf.copy()
+    top_posts_for_pdf = df_posts[df_posts["Engagement_pct"] > 0].sort_values("Engagement_pct", ascending=False).copy()
     top_posts_for_pdf["Aangemaakt"] = top_posts_for_pdf["Aangemaakt"].dt.strftime("%Y-%m-%d")
-
     diagnosis_for_pdf = st.session_state.get("diagnosis", None)
 
     if st.button("Generate PDF report", type="primary"):
-        with st.spinner("Building your report..."):
+        with st.spinner("Putting it all together..."):
             try:
                 chart_imgs = build_chart_images(
                     df_posts=df_posts, monthly=monthly,
@@ -1324,14 +1432,10 @@ elif step == 7:
                     DARK=DARK, ORANGE=RED, BLUE=BLUE, RED=RED
                 )
                 pdf_buf = generate_pdf(
-                    company=company,
-                    sector=sector,
-                    d1=d1, d2=d2,
-                    n_posts=len(df_posts),
-                    avg_eng=avg_eng,
-                    bench_eng=bench_eng,
-                    ppw=ppw,
-                    bench_freq=bench["frequency"],
+                    company=company, sector=sector,
+                    d1=d1, d2=d2, n_posts=len(df_posts),
+                    avg_eng=avg_eng, bench_eng=bench_eng,
+                    ppw=ppw, bench_freq=bench["frequency"],
                     best_day=best_day,
                     top_posts_df=top_posts_for_pdf,
                     funnel_df=funnel_for_pdf,
@@ -1341,6 +1445,7 @@ elif step == 7:
                     total_views=int(monthly["Views"].sum()),
                     total_clicks=int(funnel_for_pdf["Klikken"].sum()) if len(funnel_for_pdf) > 0 else 0,
                     chart_images=chart_imgs,
+                    sections=selected_sections,
                 )
                 fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
                 st.download_button(
@@ -1348,10 +1453,15 @@ elif step == 7:
                     data=pdf_buf,
                     file_name=fname,
                     mime="application/pdf",
+                    on_click=None,
                 )
-                st.caption("Tip: run the AI Strategy Check first — it will be included in your PDF.")
+                st.session_state["pdf_just_downloaded"] = True
             except Exception as e:
                 st.error(f"Could not generate PDF: {e}")
+
+    if st.session_state.get("pdf_just_downloaded"):
+        st.success("🎉 Your report is ready. Go make your bestuur jealous.")
+        st.session_state["pdf_just_downloaded"] = False
 
     # ── CTA ───────────────────────────────────────────────────────────────────
     st.markdown(f'<div class="cta-banner"><div class="cta-text"><strong>Rather brainstorm with a human?</strong>Connect with Bas Oudshoorn — LinkedIn strategist & Marketing Communications Manager at Leiden Bio Science Park.</div><a href="{BAS_URL}" target="_blank" class="cta-btn">Connect on LinkedIn</a></div>', unsafe_allow_html=True)
