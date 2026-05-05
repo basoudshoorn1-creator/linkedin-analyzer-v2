@@ -259,7 +259,7 @@ Base on actual data. Immediately actionable. Only suggest things the user can ac
 
 You MUST include exactly this line between the two parts: ---ACTIONS---
 Do not skip this line or the output will break."""
-    r = client.messages.create(model="claude-sonnet-4-5", max_tokens=1500,
+    r = client.messages.create(model="claude-sonnet-4-6", max_tokens=1500,
         messages=[{"role":"user","content":prompt}])
     return r.content[0].text
 
@@ -278,7 +278,7 @@ WHAT'S WORKING: [2-3 specific strengths]
 TOP OPPORTUNITY: [one high-impact improvement]
 
 Tone: direct and professional. Plain text only, no markdown, no hashtags."""
-    r = client.messages.create(model="claude-sonnet-4-5", max_tokens=2500,
+    r = client.messages.create(model="claude-sonnet-4-6", max_tokens=2500,
         messages=[{"role":"user","content":prompt}])
     return r.content[0].text
 
@@ -304,7 +304,7 @@ TOP 2 SUGGESTIONS:
 2. [specific actionable improvement — do not rewrite the post]
 
 Direct and professional. Do not rewrite the post. Plain text only."""
-    r = client.messages.create(model="claude-sonnet-4-5", max_tokens=600,
+    r = client.messages.create(model="claude-sonnet-4-6", max_tokens=600,
         messages=[{"role":"user","content":prompt}])
     return r.content[0].text
 
@@ -1482,7 +1482,7 @@ Write a concise, honest 3-paragraph analysis:
 Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). Be direct, no fluff."""
 
                             resp = client.messages.create(
-                                model="claude-sonnet-4-20250514",
+                                model="claude-sonnet-4-6",
                                 max_tokens=800,
                                 messages=[{"role":"user","content":prompt}]
                             )
