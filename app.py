@@ -426,10 +426,19 @@ def build_chart_images(df_posts, monthly, agg_fn, agg_label, **kwargs):
 
 # ── PDF EXPORT v3 ─────────────────────────────────────────────────────────────
 
+def _pdf_delta(a, b, fmt=".1f", suffix="", higher_is_good=True):
+    """Plain-text delta for PDF (no HTML)."""
+    diff = b - a
+    pct  = (diff / a * 100) if a != 0 else 0
+    sign = "+" if diff > 0 else ""
+    arrow = "↑" if diff > 0 else ("↓" if diff < 0 else "→")
+    return f"{arrow} {sign}{diff:{fmt}}{suffix} ({sign}{pct:.0f}%)"
+
+
 def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, bench_freq,
                  best_day, top_posts_df, funnel_df, monthly_df, agg_label="Median",
                  diagnosis_text=None, total_views=0, total_clicks=0, chart_images=None,
-                 sections=None):
+                 sections=None, compare_text=None, compare_stats=None):
     """
     sections: set of strings from:
       'executive_summary', 'scorecard', 'charts', 'funnel', 'top_posts', 'ai_analysis', 'frequency'
@@ -752,6 +761,86 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
         else:
             clean = re.sub(r"#{1,6}\s*", "", diagnosis_text)
             clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
+            for para in clean.strip().splitlines():
+                if para.strip():
+                    story.append(Paragraph(para.strip(), body))
+        story.append(Spacer(1, 0.4*cm))
+
+    # ── PERIOD COMPARISON ─────────────────────────────────────────────────────
+    if "period_comparison" in sections and compare_stats and compare_text:
+        story.append(section_header("Period Comparison"))
+        story.append(Spacer(1, 0.2*cm))
+
+        sa = compare_stats["a"]
+        sb = compare_stats["b"]
+        la = compare_stats["label_a"]
+        lb = compare_stats["label_b"]
+
+        rows = [
+            ["METRIC", f"A · {la}", f"B · {lb}", "CHANGE"],
+            ["Posts published",        str(sa["n"]),               str(sb["n"]),               _pdf_delta(sa["n"],          sb["n"],          fmt="d")],
+            ["Posts per week",         f"{sa['ppw']:.1f}x",        f"{sb['ppw']:.1f}x",        _pdf_delta(sa["ppw"],        sb["ppw"],        fmt=".1f", suffix="x")],
+            [f"{agg_label} engagement",f"{sa['eng']:.2f}%",        f"{sb['eng']:.2f}%",        _pdf_delta(sa["eng"],        sb["eng"],        fmt=".2f", suffix="%")],
+            ["Total views",            f"{sa['total_views']:,}".replace(",","."), f"{sb['total_views']:,}".replace(",","."), _pdf_delta(sa["total_views"],sb["total_views"],fmt=".0f")],
+            ["Total clicks",           f"{sa['total_clicks']:,}".replace(",","."),f"{sb['total_clicks']:,}".replace(",","."),_pdf_delta(sa["total_clicks"],sb["total_clicks"],fmt=".0f")],
+            ["Overall CTR",            f"{sa['ctr']:.2f}%",        f"{sb['ctr']:.2f}%",        _pdf_delta(sa["ctr"],        sb["ctr"],        fmt=".2f", suffix="%")],
+            ["Best posting day",       sa["best_day"],             sb["best_day"],             ""],
+            ["Top content type",       sa["top_type"],             sb["top_type"],             ""],
+        ]
+        cmp_style = TableStyle([
+            ("BACKGROUND",    (0,0),(-1,0), DARK),
+            ("TEXTCOLOR",     (0,0),(-1,0), WHITE),
+            ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0,0),(-1,-1), 8),
+            ("FONTNAME",      (0,1),(-1,-1), "Helvetica"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, LGREY]),
+            ("GRID",          (0,0),(-1,-1), 0.3, MGREY),
+            ("TOPPADDING",    (0,0),(-1,-1), 5),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+            ("LEFTPADDING",   (0,0),(-1,-1), 6),
+        ])
+        for i, row in enumerate(rows[1:], 1):
+            chg = str(row[3])
+            if chg.startswith("+"):
+                cmp_style.add("TEXTCOLOR", (3,i),(3,i), GREEN)
+            elif chg.startswith("-"):
+                cmp_style.add("TEXTCOLOR", (3,i),(3,i), RED_C)
+        cmp_t = Table(rows, colWidths=[4.5*cm, 4*cm, 4*cm, 4.5*cm])
+        cmp_t.setStyle(cmp_style)
+        story.append(cmp_t)
+        story.append(Spacer(1, 0.3*cm))
+
+        # AI interpretation
+        story.append(Paragraph("AI Interpretation", ParagraphStyle("h3b", fontSize=10, textColor=ORANGE,
+            fontName="Helvetica-Bold", spaceBefore=6, spaceAfter=4, leading=13)))
+        clean = re.sub(r"#{1,6}\s*", "", compare_text)
+        clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
+        if "---ACTIONS---" in clean:
+            diag_part, actions_part = clean.split("---ACTIONS---", 1)
+            for para in diag_part.strip().splitlines():
+                if para.strip():
+                    story.append(Paragraph(para.strip(), body))
+            story.append(Spacer(1, 0.2*cm))
+            story.append(Paragraph("3 Next Steps", ParagraphStyle("h3b2", fontSize=9, textColor=ORANGE,
+                fontName="Helvetica-Bold", spaceBefore=4, spaceAfter=3, leading=12)))
+            action_rows = []
+            for line in actions_part.strip().splitlines():
+                line = re.sub(r"#{1,6}\s*", "", line.strip())
+                line = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line)
+                if line and (line[0].isdigit() or line.startswith("-")):
+                    action_rows.append([Paragraph(line, body)])
+            if action_rows:
+                at = Table(action_rows, colWidths=[17*cm])
+                at.setStyle(TableStyle([
+                    ("ROWBACKGROUNDS",(0,0),(-1,-1),[WHITE, LGREY]),
+                    ("GRID",         (0,0),(-1,-1), 0.3, MGREY),
+                    ("TOPPADDING",   (0,0),(-1,-1), 5),
+                    ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+                    ("LEFTPADDING",  (0,0),(-1,-1), 10),
+                    ("LINEABOVE",    (0,0),(-1,0),  2, ORANGE),
+                ]))
+                story.append(at)
+        else:
             for para in clean.strip().splitlines():
                 if para.strip():
                     story.append(Paragraph(para.strip(), body))
@@ -1361,6 +1450,8 @@ elif step == 7:
 
                 sa = period_stats(df_a)
                 sb = period_stats(df_b)
+                # Save for PDF
+                st.session_state["compare_stats"] = {"a": sa, "b": sb, "label_a": label_a, "label_b": label_b}
 
                 def delta(a, b, fmt=".1f", suffix="", higher_is_good=True):
                     diff = b - a
@@ -1611,7 +1702,8 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
     st.markdown("#### 📄 Download your report")
     st.markdown("Choose what to include, then download a ready-to-share PDF.")
 
-    has_ai = "diagnosis" in st.session_state and st.session_state["diagnosis"]
+    has_ai      = "diagnosis" in st.session_state and st.session_state["diagnosis"]
+    has_compare = "compare_interpretation" in st.session_state and st.session_state["compare_interpretation"]
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -1625,6 +1717,9 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
         inc_ai      = st.checkbox(
             "AI Strategy & Action Items" + (" ✓" if has_ai else " (run AI analysis first)"),
             value=has_ai, disabled=not has_ai)
+        inc_compare = st.checkbox(
+            "Period Comparison & Interpretation" + (" ✓" if has_compare else " (run comparison first)"),
+            value=has_compare, disabled=not has_compare)
 
     selected_sections = set()
     if inc_exec:   selected_sections.add("executive_summary")
@@ -1634,6 +1729,7 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
     if inc_funnel: selected_sections.add("funnel")
     if inc_top:    selected_sections.add("top_posts")
     if inc_ai:     selected_sections.add("ai_analysis")
+    if inc_compare: selected_sections.add("period_comparison")
 
     funnel_for_pdf = df_posts[df_posts["Weergaven"] > 0].copy()
     funnel_for_pdf["CTR_pct"] = (funnel_for_pdf["Klikken"] / funnel_for_pdf["Weergaven"] * 100).round(3)
@@ -1664,6 +1760,8 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
                     total_clicks=int(funnel_for_pdf["Klikken"].sum()) if len(funnel_for_pdf) > 0 else 0,
                     chart_images=chart_imgs,
                     sections=selected_sections,
+                    compare_text=st.session_state.get("compare_interpretation"),
+                    compare_stats=st.session_state.get("compare_stats"),
                 )
                 fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
                 st.download_button(
