@@ -1025,15 +1025,14 @@ elif step == 7:
 
         # 1. Engagement vs benchmark
         if evb >= 0:
-            rel_txt = f" ({evb_rel:.0f}% better than the benchmark)" if not use_median else ""
             cards.append(("good", "📈", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
-                f"<strong>{abs(evb):.1f}pp above</strong> the {sector} benchmark of {bench_eng}%.{rel_txt}"))
+                f"<strong>{abs(evb):.1f}pp above</strong> the sector benchmark. "
+                f"Your content is resonating well with your audience."))
         else:
-            rel_txt = f" ({abs(evb_rel):.0f}% below benchmark)" if not use_median else ""
             cards.append(("warn", "📉", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
-                f"<strong>{abs(evb):.1f}pp below</strong> the {sector} benchmark of {bench_eng}%.{rel_txt} "
+                f"<strong>{abs(evb):.1f}pp below</strong> the sector benchmark. "
                 f"There is room to improve how your content connects with your audience."))
 
         # 2. Funnel: reach vs action
