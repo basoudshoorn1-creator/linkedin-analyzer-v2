@@ -1306,25 +1306,38 @@ elif step == 7:
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown("**Period A**")
-                pa_start_s = st.text_input("Start (DD-MM-YYYY)", value=post_min.strftime("%d-%m-%Y"), key="pa_start")
-                pa_end_s   = st.text_input("End (DD-MM-YYYY)",   value=mid.strftime("%d-%m-%Y"),      key="pa_end")
+                pa = st.date_input("Period A", value=(post_min, mid),
+                                   key="period_a")
             with col_b:
                 st.markdown("**Period B**")
-                pb_start_s = st.text_input("Start (DD-MM-YYYY)", value=mid.strftime("%d-%m-%Y"),      key="pb_start")
-                pb_end_s   = st.text_input("End (DD-MM-YYYY)",   value=post_max.strftime("%d-%m-%Y"), key="pb_end")
+                pb = st.date_input("Period B", value=(mid, post_max),
+                                   key="period_b")
 
-            try:
-                pa_start = pd.Timestamp(datetime.strptime(pa_start_s, "%d-%m-%Y"))
-                pa_end   = pd.Timestamp(datetime.strptime(pa_end_s,   "%d-%m-%Y"))
-                pb_start = pd.Timestamp(datetime.strptime(pb_start_s, "%d-%m-%Y"))
-                pb_end   = pd.Timestamp(datetime.strptime(pb_end_s,   "%d-%m-%Y"))
-            except Exception:
-                st.info("Use the format DD-MM-YYYY, e.g. 01-01-2026")
+            # Validate selection
+            valid = (isinstance(pa, (list,tuple)) and len(pa)==2 and
+                     isinstance(pb, (list,tuple)) and len(pb)==2)
+            if not valid:
+                st.info("Select a start and end date for both periods.")
                 st.stop()
 
-            if pa_start >= pa_end or pb_start >= pb_end:
-                st.warning("Start date must be before end date for both periods.")
-                st.stop()
+            pa_start, pa_end = pd.Timestamp(pa[0]), pd.Timestamp(pa[1])
+            pb_start, pb_end = pd.Timestamp(pb[0]), pd.Timestamp(pb[1])
+
+            # Out-of-range warnings
+            data_start = pd.Timestamp(post_min)
+            data_end   = pd.Timestamp(post_max)
+            warned = False
+            if pa_start < data_start or pb_start < data_start:
+                st.warning(f"⚠️ Your export starts on **{post_min.strftime('%d %b %Y')}**. "
+                           f"No LinkedIn data is available before this date — "
+                           f"export a longer period from LinkedIn to include earlier months.")
+                warned = True
+            if pa_end > data_end or pb_end > data_end:
+                st.warning(f"⚠️ Your export ends on **{post_max.strftime('%d %b %Y')}**. "
+                           f"No data available after this date.")
+                warned = True
+            if warned:
+                st.caption("Go to LinkedIn Page → Analytics → Content → Export, and set a wider date range.")
 
             df_a = df_posts[(df_posts["Aangemaakt"] >= pa_start) & (df_posts["Aangemaakt"] < pa_end)]
             df_b = df_posts[(df_posts["Aangemaakt"] >= pb_start) & (df_posts["Aangemaakt"] <= pb_end)]
