@@ -1306,24 +1306,27 @@ elif step == 7:
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown("**Period A**")
-                pa = st.date_input("Period A", value=(post_min, mid),
-                                   min_value=post_min, max_value=post_max,
-                                   key="period_a")
+                pa_start_s = st.text_input("Start date (YYYY-MM-DD)", value=str(post_min), key="pa_start")
+                pa_end_s   = st.text_input("End date (YYYY-MM-DD)",   value=str(mid),      key="pa_end")
             with col_b:
                 st.markdown("**Period B**")
-                pb = st.date_input("Period B", value=(mid, post_max),
-                                   min_value=post_min, max_value=post_max,
-                                   key="period_b")
+                pb_start_s = st.text_input("Start date (YYYY-MM-DD)", value=str(mid),      key="pb_start")
+                pb_end_s   = st.text_input("End date (YYYY-MM-DD)",   value=str(post_max), key="pb_end")
 
-            # Validate
-            valid = (isinstance(pa, (list,tuple)) and len(pa)==2 and
-                     isinstance(pb, (list,tuple)) and len(pb)==2)
-            if not valid:
-                st.info("Select a start and end date for both periods.")
+            # Parse and validate
+            try:
+                pa_start = pd.Timestamp(pa_start_s)
+                pa_end   = pd.Timestamp(pa_end_s)
+                pb_start = pd.Timestamp(pb_start_s)
+                pb_end   = pd.Timestamp(pb_end_s)
+                valid = pa_start < pa_end and pb_start < pb_end
+            except Exception:
+                st.info("Use the format YYYY-MM-DD, e.g. 2025-01-01")
                 st.stop()
 
-            pa_start, pa_end = pd.Timestamp(pa[0]), pd.Timestamp(pa[1])
-            pb_start, pb_end = pd.Timestamp(pb[0]), pd.Timestamp(pb[1])
+            if not valid:
+                st.warning("Start date must be before end date for both periods.")
+                st.stop()
 
             df_a = df_posts[(df_posts["Aangemaakt"] >= pa_start) & (df_posts["Aangemaakt"] <= pa_end)]
             df_b = df_posts[(df_posts["Aangemaakt"] >= pb_start) & (df_posts["Aangemaakt"] <= pb_end)]
@@ -1360,8 +1363,8 @@ elif step == 7:
                 st.markdown("")
 
                 # ── COMPARISON TABLE ──────────────────────────────────────────
-                label_a = f"{pa[0].strftime('%d %b')} – {pa[1].strftime('%d %b %Y')}"
-                label_b = f"{pb[0].strftime('%d %b')} – {pb[1].strftime('%d %b %Y')}"
+                label_a = f"{pa_start.strftime('%d %b')} – {pa_end.strftime('%d %b %Y')}"
+                label_b = f"{pb_start.strftime('%d %b')} – {pb_end.strftime('%d %b %Y')}"
 
                 rows = [
                     ("Posts published",       f"{sa['n']}",                      f"{sb['n']}",                      delta(sa['n'],    sb['n'],    fmt="d")),
