@@ -504,13 +504,13 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
 
     def section_header(title):
         """Dark pill header for each section."""
-        t = Table([[Paragraph(title, h2)]], colWidths=[17*cm], rowHeights=[0.8*cm])
+        t = Table([[Paragraph(title, h2)]], colWidths=[17*cm])
         t.setStyle(TableStyle([
             ("BACKGROUND",    (0,0),(0,0), DARK),
             ("LEFTPADDING",   (0,0),(0,0), 14),
             ("RIGHTPADDING",  (0,0),(0,0), 14),
-            ("TOPPADDING",    (0,0),(0,0), 10),
-            ("BOTTOMPADDING", (0,0),(0,0), 10),
+            ("TOPPADDING",    (0,0),(0,0), 13),
+            ("BOTTOMPADDING", (0,0),(0,0), 13),
             ("ROUNDEDCORNERS",[4]),
         ]))
         return t
