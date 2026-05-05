@@ -1303,39 +1303,28 @@ elif step == 7:
         else:
             mid = post_min + (post_max - post_min) // 2
 
-            # Get available years from data
-            years = sorted(df_posts["Aangemaakt"].dt.year.unique().tolist())
-
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown("**Period A**")
-                ya = st.selectbox("Year", years, index=0, key="year_a")
-                # Clamp defaults to selected year
-                pa_min = max(post_min, pd.Timestamp(f"{ya}-01-01").date())
-                pa_max = min(post_max, pd.Timestamp(f"{ya}-12-31").date())
-                pa_def_start = pa_min
-                pa_def_end   = min(pa_max, mid if mid.year == ya else pa_max)
-                pa = st.date_input("Date range", value=(pa_def_start, pa_def_end),
-                                   min_value=pa_min, max_value=pa_max, key="picker_a")
+                pa_start_s = st.text_input("Start (DD-MM-YYYY)", value=post_min.strftime("%d-%m-%Y"), key="pa_start")
+                pa_end_s   = st.text_input("End (DD-MM-YYYY)",   value=mid.strftime("%d-%m-%Y"),      key="pa_end")
             with col_b:
                 st.markdown("**Period B**")
-                yb = st.selectbox("Year", years, index=len(years)-1, key="year_b")
-                pb_min = max(post_min, pd.Timestamp(f"{yb}-01-01").date())
-                pb_max = min(post_max, pd.Timestamp(f"{yb}-12-31").date())
-                pb_def_start = max(pb_min, mid if mid.year == yb else pb_min)
-                pb_def_end   = pb_max
-                pb = st.date_input("Date range", value=(pb_def_start, pb_def_end),
-                                   min_value=pb_min, max_value=pb_max, key="picker_b")
+                pb_start_s = st.text_input("Start (DD-MM-YYYY)", value=mid.strftime("%d-%m-%Y"),      key="pb_start")
+                pb_end_s   = st.text_input("End (DD-MM-YYYY)",   value=post_max.strftime("%d-%m-%Y"), key="pb_end")
 
-            # Validate
-            valid = (isinstance(pa, (list,tuple)) and len(pa)==2 and
-                     isinstance(pb, (list,tuple)) and len(pb)==2)
-            if not valid:
-                st.info("Select a start and end date for both periods.")
+            try:
+                pa_start = pd.Timestamp(datetime.strptime(pa_start_s, "%d-%m-%Y"))
+                pa_end   = pd.Timestamp(datetime.strptime(pa_end_s,   "%d-%m-%Y"))
+                pb_start = pd.Timestamp(datetime.strptime(pb_start_s, "%d-%m-%Y"))
+                pb_end   = pd.Timestamp(datetime.strptime(pb_end_s,   "%d-%m-%Y"))
+            except Exception:
+                st.info("Use the format DD-MM-YYYY, e.g. 01-01-2026")
                 st.stop()
 
-            pa_start, pa_end = pd.Timestamp(pa[0]), pd.Timestamp(pa[1])
-            pb_start, pb_end = pd.Timestamp(pb[0]), pd.Timestamp(pb[1])
+            if pa_start >= pa_end or pb_start >= pb_end:
+                st.warning("Start date must be before end date for both periods.")
+                st.stop()
 
             df_a = df_posts[(df_posts["Aangemaakt"] >= pa_start) & (df_posts["Aangemaakt"] <= pa_end)]
             df_b = df_posts[(df_posts["Aangemaakt"] >= pb_start) & (df_posts["Aangemaakt"] <= pb_end)]
@@ -1372,8 +1361,8 @@ elif step == 7:
                 st.markdown("")
 
                 # ── COMPARISON TABLE ──────────────────────────────────────────
-                label_a = f"{pa[0].strftime('%d %b')} – {pa[1].strftime('%d %b %Y')}"
-                label_b = f"{pb[0].strftime('%d %b')} – {pb[1].strftime('%d %b %Y')}"
+                label_a = f"{pa_start.strftime('%d %b')} – {pa_end.strftime('%d %b %Y')}"
+                label_b = f"{pb_start.strftime('%d %b')} – {pb_end.strftime('%d %b %Y')}"
 
                 rows = [
                     ("Posts published",       f"{sa['n']}",                      f"{sb['n']}",                      delta(sa['n'],    sb['n'],    fmt="d")),
