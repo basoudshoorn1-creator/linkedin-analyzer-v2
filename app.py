@@ -71,7 +71,7 @@ html,body,[class*="css"]{{font-family:'Sora',sans-serif;}}
 .cta-banner{{background:{DARK};border-radius:16px;padding:2rem 2.5rem;display:flex;align-items:center;justify-content:space-between;margin-top:3rem;gap:1rem;}}
 .cta-text{{color:{CREAM};font-size:15px;line-height:1.6;}}
 .cta-text strong{{color:white;font-size:17px;display:block;margin-bottom:4px;}}
-.cta-btn{{background:white;color:{RED};border:2px solid white;padding:12px 28px;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;text-decoration:none;font-family:'Sora',sans-serif;}}
+.cta-btn{{background:white;color:{RED};border:2px solid white;padding:12px 28px;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;text-decoration:none !important;font-family:'Sora',sans-serif;display:inline-block;}}
 .welcome-msg{{font-family:'Lora',serif;font-size:1.5rem;color:{DARK};margin-bottom:.5rem;font-style:italic;}}
 .stTabs [data-baseweb="tab-list"]{{gap:6px;border-bottom:2px solid #e8e2d8;}}
 .stTabs [data-baseweb="tab"]{{font-size:13px;font-weight:500;padding:10px 18px;border-radius:8px 8px 0 0;background:#e8f4fb;border:1px solid #c8e6f5;border-bottom:none;}}
