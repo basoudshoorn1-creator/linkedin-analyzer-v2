@@ -1402,39 +1402,75 @@ elif step == 7:
 
                 # ── SIDE-BY-SIDE CHARTS ───────────────────────────────────────
                 st.markdown('<p class="section-head">Monthly views — A vs B</p>', unsafe_allow_html=True)
+                st.caption("Months are shown relative (Month 1, Month 2...) so periods of different lengths align correctly.")
 
-                def monthly_views_for(df):
+                def monthly_relative(df, label):
                     m = df.copy()
-                    m["Month"] = m["Aangemaakt"].dt.to_period("M").astype(str)
-                    return m.groupby("Month")["Weergaven"].sum().reset_index()
+                    m["Month"] = m["Aangemaakt"].dt.to_period("M")
+                    agg = m.groupby("Month")["Weergaven"].sum().reset_index()
+                    agg = agg.sort_values("Month").reset_index(drop=True)
+                    agg["Label"] = [f"Month {i+1}" for i in range(len(agg))]
+                    agg["Period"] = label
+                    return agg
 
-                mv_a = monthly_views_for(df_a)
-                mv_b = monthly_views_for(df_b)
+                mv_a = monthly_relative(df_a, f"A · {label_a}")
+                mv_b = monthly_relative(df_b, f"B · {label_b}")
+
+                # Pad to same length for clean grouped bars
+                max_months = max(len(mv_a), len(mv_b))
+                x_labels = [f"Month {i+1}" for i in range(max_months)]
+
+                def pad_series(df, col, length):
+                    vals = df[col].tolist()
+                    return vals + [0] * (length - len(vals))
 
                 fig_cmp = go.Figure()
-                fig_cmp.add_trace(go.Bar(name=f"A · {label_a}", x=mv_a["Month"], y=mv_a["Weergaven"],
-                                         marker_color=DARK, opacity=0.85))
-                fig_cmp.add_trace(go.Bar(name=f"B · {label_b}", x=mv_b["Month"], y=mv_b["Weergaven"],
-                                         marker_color=RED, opacity=0.85))
-                fig_cmp.update_layout(**bl(height=300), barmode="group",
-                                      legend=dict(orientation="h", y=1.08),
-                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"))
+                fig_cmp.add_trace(go.Bar(
+                    name=f"A · {label_a}",
+                    x=x_labels, y=pad_series(mv_a, "Weergaven", max_months),
+                    marker_color=DARK, opacity=0.85,
+                    text=[f"{int(v/1000)}k" if v >= 1000 else str(int(v)) for v in pad_series(mv_a, "Weergaven", max_months)],
+                    textposition="outside"
+                ))
+                fig_cmp.add_trace(go.Bar(
+                    name=f"B · {label_b}",
+                    x=x_labels, y=pad_series(mv_b, "Weergaven", max_months),
+                    marker_color=RED, opacity=0.85,
+                    text=[f"{int(v/1000)}k" if v >= 1000 else str(int(v)) for v in pad_series(mv_b, "Weergaven", max_months)],
+                    textposition="outside"
+                ))
+                fig_cmp.update_layout(**bl(height=320), barmode="group",
+                                      legend=dict(orientation="h", y=1.1),
+                                      xaxis=dict(showgrid=False),
+                                      yaxis=dict(showgrid=True, gridcolor="#f0f0f0"))
                 st.plotly_chart(fig_cmp, use_container_width=True)
 
-                # Engagement over time
+                # Engagement scatter — relative days from period start
                 st.markdown('<p class="section-head">Engagement per post — A vs B</p>', unsafe_allow_html=True)
+                st.caption("X-axis shows days from the start of each period — so both periods start at day 0.")
+
+                df_a_rel = df_a.copy()
+                df_b_rel = df_b.copy()
+                df_a_rel["Day_rel"] = (df_a_rel["Aangemaakt"] - pa_start).dt.days
+                df_b_rel["Day_rel"] = (df_b_rel["Aangemaakt"] - pb_start).dt.days
+
                 fig_eng = go.Figure()
                 fig_eng.add_trace(go.Scatter(
-                    x=df_a["Aangemaakt"], y=df_a["Engagement_pct"],
+                    x=df_a_rel["Day_rel"], y=df_a_rel["Engagement_pct"],
                     mode="markers", name=f"A · {label_a}",
-                    marker=dict(color=DARK, size=7, opacity=0.7)))
+                    marker=dict(color=DARK, size=7, opacity=0.75),
+                    text=df_a_rel["Title_short"], hovertemplate="%{text}<br>Day %{x}<br>Engagement: %{y:.2f}%"
+                ))
                 fig_eng.add_trace(go.Scatter(
-                    x=df_b["Aangemaakt"], y=df_b["Engagement_pct"],
+                    x=df_b_rel["Day_rel"], y=df_b_rel["Engagement_pct"],
                     mode="markers", name=f"B · {label_b}",
-                    marker=dict(color=RED, size=7, opacity=0.7)))
-                fig_eng.update_layout(**bl(height=280),
-                                      legend=dict(orientation="h", y=1.08),
-                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0", title="Engagement %"))
+                    marker=dict(color=RED, size=7, opacity=0.75),
+                    text=df_b_rel["Title_short"], hovertemplate="%{text}<br>Day %{x}<br>Engagement: %{y:.2f}%"
+                ))
+                fig_eng.update_layout(**bl(height=300),
+                                      legend=dict(orientation="h", y=1.1),
+                                      xaxis=dict(showgrid=False, title="Days from period start"),
+                                      yaxis=dict(showgrid=True, gridcolor="#f0f0f0", title="Engagement %"))
                 st.plotly_chart(fig_eng, use_container_width=True)
 
                 # ── AI INTERPRETATION ─────────────────────────────────────────
