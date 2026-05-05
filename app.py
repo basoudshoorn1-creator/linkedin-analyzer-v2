@@ -557,8 +557,7 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
             story.append(Paragraph(f"{agg_label} engagement by day (left) and reach by day (right).", small))
             story.append(Spacer(1, 0.3*cm))
 
-        # CTR scatter full width
-        add_chart("ctr_scatter", "Reach vs. click-through rate per post. Posts in the top-left have high reach but low CTR — potential vanity metrics.")
+        # CTR scatter verwijderd — te veel ruis in PDF context
 
     story.append(Spacer(1, 0.2*cm))
 
@@ -1026,15 +1025,16 @@ elif step == 7:
 
         # 1. Engagement vs benchmark
         if evb >= 0:
+            rel_txt = f" ({evb_rel:.0f}% better than the benchmark)" if not use_median else ""
             cards.append(("good", "📈", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
-                f"<strong>{abs(evb):.1f}pp above</strong> the {sector} benchmark of {bench_eng}% "
-                f"(<strong>{evb_rel:.0f}% better than the benchmark</strong>)."))
+                f"<strong>{abs(evb):.1f}pp above</strong> the {sector} benchmark of {bench_eng}%.{rel_txt}"))
         else:
+            rel_txt = f" ({abs(evb_rel):.0f}% below benchmark)" if not use_median else ""
             cards.append(("warn", "📉", "Engagement",
                 f"Your {agg_label.lower()} engagement rate is <strong>{avg_eng:.1f}%</strong> — "
-                f"<strong>{abs(evb):.1f}pp below</strong> the {sector} benchmark of {bench_eng}% "
-                f"({abs(evb_rel):.0f}% below benchmark). There is room to improve how your content connects with your audience."))
+                f"<strong>{abs(evb):.1f}pp below</strong> the {sector} benchmark of {bench_eng}%.{rel_txt} "
+                f"There is room to improve how your content connects with your audience."))
 
         # 2. Funnel: reach vs action
         _converter_txt = (
