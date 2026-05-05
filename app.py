@@ -1044,7 +1044,6 @@ elif step == 7:
             ds = days_all[days_all["cnt"]>=3].sort_values("G",ascending=True)
             fig_d = go.Figure(go.Bar(x=ds["G"].round(2),y=ds["Day"].map(DAG_EN),orientation="h",marker_color=RED,text=ds["G"].apply(lambda v:f"{v:.2f}%"),textposition="outside"))
             fig_d.update_layout(**bl(height=220),xaxis=dict(showgrid=False,visible=False),yaxis=dict(showgrid=False))
-            fig_d.add_vline(x=bench_eng,line_dash="dot",line_color="rgba(0,0,0,0.2)",annotation_text=f"  benchmark {bench_eng}%",annotation_font_size=11)
             st.plotly_chart(fig_d,use_container_width=True)
         with cr:
             st.markdown('<p class="section-head">Reach by day</p>', unsafe_allow_html=True)
