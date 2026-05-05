@@ -10,7 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors as rl_colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 st.set_page_config(page_title="LinkedIn Analytics Analyzer", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
@@ -311,9 +311,112 @@ Direct and professional. Do not rewrite the post. Plain text only."""
 
 # ── PDF EXPORT ────────────────────────────────────────────────────────────────
 
+DAG_NL_PDF = {"Monday":"Ma","Tuesday":"Di","Wednesday":"Wo","Thursday":"Do","Friday":"Vr","Saturday":"Za","Sunday":"Zo"}
+
+def fig_to_png(fig, width=680, height=280):
+    """Export a Plotly figure to PNG bytes."""
+    return fig.to_image(format="png", width=width, height=height, scale=2)
+
+def build_chart_images(df_posts, monthly, agg_fn, agg_label, DARK, ORANGE, BLUE, RED):
+    """Build all dashboard charts as PNG bytes dicts."""
+    charts = {}
+
+    # 1. Monthly views bar
+    fig_mv = go.Figure(go.Bar(
+        x=monthly["Month"], y=monthly["Views"],
+        marker_color=DARK, opacity=.85,
+        text=monthly["Views"].apply(lambda v: f"{v/1000:.1f}k" if v >= 1000 else str(int(v))),
+        textposition="outside", textfont=dict(size=10)
+    ))
+    fig_mv.update_layout(
+        height=260, margin=dict(l=10,r=10,t=30,b=60), paper_bgcolor="white", plot_bgcolor="white",
+        title=dict(text=f"Monthly Views", font=dict(size=13, color=DARK)),
+        xaxis=dict(tickangle=-45, showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
+        bargap=.35, font=dict(family="sans-serif", size=11)
+    )
+    charts["monthly_views"] = fig_to_png(fig_mv)
+
+    # 2. Monthly engagement line
+    fig_me = go.Figure(go.Scatter(
+        x=monthly["Month"], y=monthly["Engagement"],
+        mode="lines+markers+text",
+        line=dict(color=ORANGE, width=2.5),
+        marker=dict(size=7, color=ORANGE),
+        text=monthly["Engagement"].apply(lambda v: f"{v:.1f}%"),
+        textposition="top center", textfont=dict(size=10)
+    ))
+    fig_me.update_layout(
+        height=260, margin=dict(l=10,r=10,t=30,b=60), paper_bgcolor="white", plot_bgcolor="white",
+        title=dict(text=f"Monthly Engagement Rate (%)", font=dict(size=13, color=DARK)),
+        xaxis=dict(tickangle=-45, showgrid=False), yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
+        font=dict(family="sans-serif", size=11)
+    )
+    charts["monthly_engagement"] = fig_to_png(fig_me)
+
+    # 3. Engagement by day (horizontal bar)
+    DAG_EN = {"Monday":"Mon","Tuesday":"Tue","Wednesday":"Wed","Thursday":"Thu","Friday":"Fri","Saturday":"Sat","Sunday":"Sun"}
+    days_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(
+        G=("Engagement_pct", agg_fn), cnt=("Engagement_pct","count")
+    ).reset_index()
+    ds = days_all[days_all["cnt"]>=2].sort_values("G", ascending=True)
+    if len(ds) > 0:
+        fig_de = go.Figure(go.Bar(
+            x=ds["G"].round(2), y=ds["Day"].map(DAG_EN),
+            orientation="h", marker_color=RED,
+            text=ds["G"].apply(lambda v: f"{v:.2f}%"), textposition="outside"
+        ))
+        fig_de.update_layout(
+            height=240, margin=dict(l=10,r=60,t=30,b=20), paper_bgcolor="white", plot_bgcolor="white",
+            title=dict(text=f"{agg_label} Engagement by Day", font=dict(size=13, color=DARK)),
+            xaxis=dict(showgrid=False, visible=False), yaxis=dict(showgrid=False),
+            font=dict(family="sans-serif", size=11)
+        )
+        charts["engagement_by_day"] = fig_to_png(fig_de, height=240)
+
+    # 4. Reach by day
+    dr_all = df_posts[(df_posts["Day"].isin(DAG_EN)) & (df_posts["Weergaven"]>0)].groupby("Day").agg(
+        G=("Weergaven", agg_fn), cnt=("Weergaven","count")
+    ).reset_index()
+    dr = dr_all[dr_all["cnt"]>=2].sort_values("G", ascending=True)
+    if len(dr) > 0:
+        fig_dr = go.Figure(go.Bar(
+            x=dr["G"].round(0), y=dr["Day"].map(DAG_EN),
+            orientation="h", marker_color=BLUE,
+            text=dr["G"].apply(lambda v: f"{int(v):,}".replace(",",".")), textposition="outside"
+        ))
+        fig_dr.update_layout(
+            height=240, margin=dict(l=10,r=60,t=30,b=20), paper_bgcolor="white", plot_bgcolor="white",
+            title=dict(text=f"{agg_label} Reach by Day", font=dict(size=13, color=DARK)),
+            xaxis=dict(showgrid=False, visible=False), yaxis=dict(showgrid=False),
+            font=dict(family="sans-serif", size=11)
+        )
+        charts["reach_by_day"] = fig_to_png(fig_dr, height=240)
+
+    # 5. CTR funnel scatter
+    funnel = df_posts[df_posts["Weergaven"]>0].copy()
+    funnel["CTR_pct"] = (funnel["Klikken"] / funnel["Weergaven"] * 100).round(3)
+    if len(funnel) > 0:
+        fig_f = go.Figure(go.Scatter(
+            x=funnel["Weergaven"], y=funnel["CTR_pct"],
+            mode="markers",
+            marker=dict(size=8, color=ORANGE, opacity=0.7, line=dict(width=1, color=DARK)),
+            text=funnel["Title_short"], hovertemplate="%{text}<br>Views: %{x}<br>CTR: %{y:.2f}%"
+        ))
+        fig_f.update_layout(
+            height=260, margin=dict(l=10,r=10,t=30,b=40), paper_bgcolor="white", plot_bgcolor="white",
+            title=dict(text="Reach vs. Click Rate (CTR)", font=dict(size=13, color=DARK)),
+            xaxis=dict(title="Views", showgrid=True, gridcolor="#f0f0f0"),
+            yaxis=dict(title="CTR %", showgrid=True, gridcolor="#f0f0f0"),
+            font=dict(family="sans-serif", size=11)
+        )
+        charts["ctr_scatter"] = fig_to_png(fig_f)
+
+    return charts
+
+
 def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, bench_freq,
                  best_day, top_posts_df, funnel_df, monthly_df, agg_label="Median",
-                 diagnosis_text=None, total_views=0, total_clicks=0):
+                 diagnosis_text=None, total_views=0, total_clicks=0, chart_images=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             leftMargin=2.2*cm, rightMargin=2.2*cm,
@@ -408,16 +511,46 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
     story.append(kpi_t)
     story.append(Spacer(1, 0.4*cm))
 
-    # MONTHLY SPARKLINE
-    if monthly_df is not None and len(monthly_df) >= 2:
-        story.append(Paragraph("Monthly Views Trend", h2))
-        tail  = monthly_df.tail(12)
-        max_v = tail["Views"].max()
-        bars  = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
-        spark = "".join(bars[int((v/max_v)*(len(bars)-1))] if max_v > 0 else bars[0] for v in tail["Views"])
-        story.append(Paragraph(f'<font size="18">{spark}</font>', body))
-        story.append(Paragraph("  \u00b7  ".join(tail["Month"].tolist()), small))
-        story.append(Spacer(1, 0.3*cm))
+    # CHARTS
+    if chart_images:
+        story.append(Paragraph("Performance Charts", h2))
+
+        def add_chart(key, caption_text):
+            if key in chart_images:
+                img_buf = io.BytesIO(chart_images[key])
+                img = RLImage(img_buf, width=17*cm, height=6.5*cm)
+                story.append(img)
+                story.append(Paragraph(caption_text, small))
+                story.append(Spacer(1, 0.3*cm))
+
+        # Monthly views + engagement side by side
+        if "monthly_views" in chart_images and "monthly_engagement" in chart_images:
+            row = [[
+                RLImage(io.BytesIO(chart_images["monthly_views"]),  width=8.3*cm, height=5.5*cm),
+                RLImage(io.BytesIO(chart_images["monthly_engagement"]), width=8.3*cm, height=5.5*cm),
+            ]]
+            t = Table(row, colWidths=[8.5*cm, 8.5*cm])
+            t.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),4)]))
+            story.append(t)
+            story.append(Paragraph("Monthly views (left) and engagement rate (right).", small))
+            story.append(Spacer(1, 0.3*cm))
+
+        # Day charts side by side
+        if "engagement_by_day" in chart_images and "reach_by_day" in chart_images:
+            row2 = [[
+                RLImage(io.BytesIO(chart_images["engagement_by_day"]), width=8.3*cm, height=5*cm),
+                RLImage(io.BytesIO(chart_images["reach_by_day"]),      width=8.3*cm, height=5*cm),
+            ]]
+            t2 = Table(row2, colWidths=[8.5*cm, 8.5*cm])
+            t2.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),4)]))
+            story.append(t2)
+            story.append(Paragraph(f"{agg_label} engagement by day (left) and reach by day (right).", small))
+            story.append(Spacer(1, 0.3*cm))
+
+        # CTR scatter full width
+        add_chart("ctr_scatter", "Reach vs. click-through rate per post. Posts in the top-left have high reach but low CTR — potential vanity metrics.")
+
+    story.append(Spacer(1, 0.2*cm))
 
     # FUNNEL TABLE
     story.append(Paragraph("Content Funnel \u2014 Views \u2192 Clicks \u2192 Engagement", h2))
@@ -1176,6 +1309,11 @@ elif step == 7:
     if st.button("Generate PDF report", type="primary"):
         with st.spinner("Building your report..."):
             try:
+                chart_imgs = build_chart_images(
+                    df_posts=df_posts, monthly=monthly,
+                    agg_fn=agg_fn, agg_label=agg_label,
+                    DARK=DARK, ORANGE=RED, BLUE=BLUE, RED=RED
+                )
                 pdf_buf = generate_pdf(
                     company=company,
                     sector=sector,
@@ -1193,6 +1331,7 @@ elif step == 7:
                     diagnosis_text=diagnosis_for_pdf,
                     total_views=int(monthly["Views"].sum()),
                     total_clicks=int(funnel_for_pdf["Klikken"].sum()) if len(funnel_for_pdf) > 0 else 0,
+                    chart_images=chart_imgs,
                 )
                 fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
                 st.download_button(
