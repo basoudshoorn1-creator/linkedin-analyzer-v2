@@ -1151,10 +1151,11 @@ elif step == 7:
             st.rerun()
     st.markdown("---")
 
-    tab_names = ["💡 Insights","📊 Content","📅 Compare Periods","✏️ Write a post"]
+    tab_names = ["💡 Insights","📊 Content","📅 Compare Periods"]
     if fol_growth is not None: tab_names.append("👥 Followers")
     if vis_data is not None: tab_names.append("👁 Visitors")
     if df_comp is not None: tab_names.append("🏆 Competitors")
+    tab_names.append("✏️ Write a post")
     tabs = st.tabs(tab_names)
     tm = {n:t for n,t in zip(tab_names,tabs)}
 
@@ -1450,8 +1451,6 @@ elif step == 7:
 
                 sa = period_stats(df_a)
                 sb = period_stats(df_b)
-                # Save for PDF
-                st.session_state["compare_stats"] = {"a": sa, "b": sb, "label_a": label_a, "label_b": label_b}
 
                 def delta(a, b, fmt=".1f", suffix="", higher_is_good=True):
                     diff = b - a
@@ -1467,6 +1466,7 @@ elif step == 7:
                 # ── COMPARISON TABLE ──────────────────────────────────────────
                 label_a = f"{pa_start.strftime('%d %b')} – {pa_end.strftime('%d %b %Y')}"
                 label_b = f"{pb_start.strftime('%d %b')} – {pb_end.strftime('%d %b %Y')}"
+                st.session_state["compare_stats"] = {"a": sa, "b": sb, "label_a": label_a, "label_b": label_b}
 
                 rows = [
                     ("Posts published",       f"{sa['n']}",                      f"{sb['n']}",                      delta(sa['n'],    sb['n'],    fmt="d")),
