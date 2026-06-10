@@ -22,6 +22,7 @@ BLUE  = "#8ECAE6"
 BAS_URL = "https://www.linkedin.com/in/bas-oudshoorn/"
 SHEET_ID = "1b29ihr0-Yt7Imz-wRStTo-SJ7iF8kY4-88tvVo1Bq_0"
 MAX_USERS = 20
+MAX_AI_CALLS = 8  # per session — protects against API cost abuse
 
 SECTORS = {
     "Life Sciences & Health":           {"engagement": 3.3,  "frequency": "4-5x/week"},
@@ -186,6 +187,13 @@ def post_table(df,bench):
     d.columns = ["Post","Date","Day","Views","Likes","Comments","Engagement","vs benchmark"]
     d["Views"] = d["Views"].apply(lambda v: f"{v:,}".replace(",","."))
     st.dataframe(d,use_container_width=True,hide_index=True)
+
+
+def ai_budget_left():
+    return st.session_state.get("ai_calls", 0) < MAX_AI_CALLS
+
+def ai_spend():
+    st.session_state["ai_calls"] = st.session_state.get("ai_calls", 0) + 1
 
 
 # ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
@@ -1243,51 +1251,24 @@ elif step == 7:
                 f"at <strong>{best_type_score:.1f}%</strong>. If you are not leaning into this format already, it is worth doing more of it."))
 
         # ── RENDER CARDS ──────────────────────────────────────────────────────
-        # Brand palette: DARK=#0D1B2A, ORANGE=#FB8500, BLUE=#8ECAE6, CREAM=#EAF4FB
-        CARD_STYLES = {
-            "good":    {"bg": "#EAF4FB", "border": "#8ECAE6", "accent": "#0D1B2A",  "label_color": "#0D1B2A"},
-            "warn":    {"bg": "#FFF7ED", "border": "#FB8500", "accent": "#FB8500",  "label_color": "#C05E00"},
-            "bad":     {"bg": "#FEF2F2", "border": "#E53E3E", "accent": "#E53E3E",  "label_color": "#C0392B"},
-            "neutral": {"bg": "#F4F6F8", "border": "#8ECAE6", "accent": "#8ECAE6",  "label_color": "#4A5568"},
-        }
+        # Clean style: white cards (matching KPI cards), colored status dot
+        ACCENTS = {"good": "#057642", "warn": "#FB8500", "bad": "#E53E3E", "neutral": "#8ECAE6"}
 
         col1, col2 = st.columns(2, gap="medium")
         for i, (status, icon, title, text) in enumerate(cards):
-            s = CARD_STYLES.get(status, CARD_STYLES["neutral"])
+            accent = ACCENTS.get(status, ACCENTS["neutral"])
             col = col1 if i % 2 == 0 else col2
             with col:
-                st.markdown(f'''
-<div style="
-    background:{s['bg']};
-    border:1px solid {s['border']};
-    border-top:3px solid {s['accent']};
-    border-radius:10px;
-    padding:1.1rem 1.25rem 1rem;
-    margin-bottom:1rem;
-    height:100%;
-    box-sizing:border-box;
-">
-    <div style="
-        display:flex;
-        align-items:center;
-        gap:7px;
-        margin-bottom:0.5rem;
-    ">
-        <span style="font-size:15px;line-height:1;">{icon}</span>
-        <span style="
-            font-size:10.5px;
-            font-weight:700;
-            text-transform:uppercase;
-            letter-spacing:0.07em;
-            color:{s['label_color']};
-        ">{title}</span>
-    </div>
-    <div style="
-        font-size:13.5px;
-        line-height:1.65;
-        color:#1a1a1a;
-    ">{text}</div>
-</div>''', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:white;border:1.5px solid #e8e2d8;border-radius:16px;'
+                    f'padding:1.15rem 1.4rem;margin-bottom:1rem;">'
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem;">'
+                    f'<span style="width:8px;height:8px;border-radius:50%;background:{accent};flex:none;"></span>'
+                    f'<span style="font-size:10.5px;font-weight:700;text-transform:uppercase;'
+                    f'letter-spacing:.08em;color:#8a8a8a;">{title}</span></div>'
+                    f'<div style="font-size:13.5px;line-height:1.7;color:#2a2a2a;">{text}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True)
 
         # ── AI STRATEGY ───────────────────────────────────────────────────────
         st.markdown("---")
@@ -1297,13 +1278,16 @@ elif step == 7:
         if not api_key:
             st.warning("AI diagnosis is not available right now.")
         else:
-            if st.button("Generate AI analysis", type="primary"):
+            if st.button("Generate AI analysis", type="primary", disabled=not ai_budget_left()):
                 with st.spinner("Analysing your data..."):
                     try:
                         diag = ai_diag(df_posts,df_stats,sector,bench_eng,api_key)
                         st.session_state.diagnosis = diag
+                        ai_spend()
                     except Exception as e:
                         st.error(f"Something went wrong: {e}")
+            if not ai_budget_left():
+                st.caption("You've reached the AI limit for this session.")
         if "diagnosis" in st.session_state:
             raw = re.sub(r"#{1,6}\s*","",st.session_state.diagnosis)
             raw = re.sub(r"\*?\*?PART\s+\d+[^\n]*\*?\*?\n?","",raw).strip()
@@ -1534,7 +1518,7 @@ elif step == 7:
                 st.markdown("#### AI interpretation")
                 st.markdown("Let AI explain what changed and why it matters.")
                 api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
-                if api_key and st.button("Interpret this comparison", type="primary"):
+                if api_key and st.button("Interpret this comparison", type="primary", disabled=not ai_budget_left()):
                     with st.spinner("Reading the data..."):
                         try:
                             client = Anthropic(api_key=api_key)
@@ -1558,6 +1542,7 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
                                 messages=[{"role":"user","content":prompt}]
                             )
                             st.session_state["compare_interpretation"] = resp.content[0].text
+                            ai_spend()
                         except Exception as e:
                             st.error(f"Could not generate interpretation: {e}")
 
@@ -1584,7 +1569,7 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
         api_key3 = st.secrets.get("ANTHROPIC_API_KEY",None)
         draft_post = st.text_area("Paste your draft post here", height=200, placeholder="Write or paste your LinkedIn post here...")
         if api_key3:
-            if st.button("Give me feedback →", type="primary", disabled=not draft_post):
+            if st.button("Give me feedback →", type="primary", disabled=(not draft_post) or (not ai_budget_left())):
                 if draft_post:
                     with st.spinner("Reviewing your draft..."):
                         try:
@@ -1593,6 +1578,7 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
                                 .round(2).to_dict("records"))
                             feedback = ai_draft_feedback(draft_post,sector,bench_eng,api_key3,top_posts=top_for_fb)
                             st.session_state.draft_feedback = feedback
+                            ai_spend()
                         except Exception as e:
                             st.error(f"Something went wrong: {e}")
         if "draft_feedback" in st.session_state:
