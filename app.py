@@ -187,13 +187,6 @@ def post_table(df,bench):
     d["Views"] = d["Views"].apply(lambda v: f"{v:,}".replace(",","."))
     st.dataframe(d,use_container_width=True,hide_index=True)
 
-def insight_card(emoji, title, body, status="neutral"):
-    colors = {"good":"#eaf7f0","warn":"#fff8e6","neutral":CREAM,"bad":"#fef0f0"}
-    borders = {"good":"#4caf8a","warn":RED,"neutral":BLUE,"bad":"#e05252"}
-    bg = colors.get(status,CREAM)
-    border = borders.get(status,BLUE)
-    return f'<div style="background:{bg};border-left:4px solid {border};border-radius:0 14px 14px 0;padding:1.25rem 1.5rem;margin-bottom:12px;"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:6px;">{emoji} {title}</div><div style="font-size:14px;line-height:1.75;color:{DARK};">{body}</div></div>'
-
 
 # ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
 
@@ -204,11 +197,12 @@ def _get_gsheet():
     )
     return gspread.authorize(creds).open_by_key(SHEET_ID).sheet1
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_sheet_data():
     try:
         rows = _get_gsheet().get_all_values()
         return rows[1:] if len(rows) > 1 else []
-    except:
+    except Exception:
         return None
 
 def get_unique_user_count(rows):
@@ -227,6 +221,7 @@ def write_to_sheet(name, email, company, sector, followers, consent=False):
             name, email, company, sector, followers,
             "✅ yes" if consent else "❌ no"
         ])
+        get_sheet_data.clear()
         return True, None
     except Exception as e:
         return False, str(e)
@@ -263,30 +258,14 @@ Do not skip this line or the output will break."""
         messages=[{"role":"user","content":prompt}])
     return r.content[0].text
 
-def ai_audit(posts_text, top_performers, sector, api_key):
+def ai_draft_feedback(draft, sector, bench_eng, api_key, top_posts=None):
     client = Anthropic(api_key=api_key)
-    prompt = f"""You are an experienced LinkedIn content strategist reviewing posts for a {sector} company.
-TOP PERFORMING POSTS: {top_performers}
-POSTS TO REVIEW: {posts_text}
-
-Review ALL posts. For each post output EXACTLY this format on TWO lines:
-POST [N] | Hook [X]/10 | Clarity [X]/10 | CTA [X]/10 | Overall [X]/10
-[One clear constructive sentence.] To improve: [one specific action.]
-
-After all posts output:
-WHAT'S WORKING: [2-3 specific strengths]
-TOP OPPORTUNITY: [one high-impact improvement]
-
-Tone: direct and professional. Plain text only, no markdown, no hashtags."""
-    r = client.messages.create(model="claude-sonnet-4-6", max_tokens=2500,
-        messages=[{"role":"user","content":prompt}])
-    return r.content[0].text
-
-def ai_draft_feedback(draft, sector, bench_eng, api_key):
-    client = Anthropic(api_key=api_key)
+    top_context = (f"\nThis company's top performing posts (title, engagement %, views):\n{top_posts}\n"
+                   "Ground your suggestions in what has already worked for this specific audience.\n"
+                   if top_posts else "")
     prompt = f"""You are an experienced LinkedIn content strategist reviewing a draft post for a {sector} company.
 Sector benchmark: {bench_eng}%
-
+{top_context}
 DRAFT POST:
 {draft}
 
@@ -554,7 +533,8 @@ def generate_pdf(company, sector, d1, d2, n_posts, avg_eng, bench_eng, ppw, benc
         ]))
         story.append(exec_t)
         story.append(Paragraph(
-            f"Note: benchmark ({bench_eng}%) is a sector average. "
+            f"Note: benchmark ({bench_eng}%) is a sector average (source: Hootsuite, 2025; "
+            f"posting frequency: Buffer & RedactAI). "
             f"Your {agg_label.lower()} is calculated from your own post data and is not directly comparable.",
             note))
         story.append(Spacer(1, 0.4*cm))
@@ -912,7 +892,7 @@ if step == 99:
             if not wl_email or "@" not in wl_email:
                 st.error("Please enter a valid email address.")
             else:
-                write_to_sheet(wl_name or "—", wl_email, wl_company or "—", "waitlist", 0)
+                write_to_sheet(wl_name or "—", wl_email, wl_company or "—", "waitlist", 0, consent=True)
                 st.success("You're on the list! We'll reach out personally when your spot is ready.")
     st.stop()
 
@@ -932,9 +912,11 @@ elif step == 1:
         st.caption("Find this on your LinkedIn Page. We use it to show your real follower growth over time. Leave at 0 to skip.")
         current_followers = st.number_input("Current followers", min_value=0, value=0, step=100, label_visibility="collapsed")
         st.markdown("---")
-        st.caption("Your LinkedIn data stays in your browser session only — never stored on our servers.")
+        st.caption("Your LinkedIn data is only processed during your session and never stored. "
+                   "We do save your name and email to manage access — this tool is limited to 20 users. "
+                   "For the AI analysis, a short summary of your post data is sent to Anthropic, our AI provider.")
         agree = st.toggle("Stay in the loop", value=True)
-        st.caption("Occasional updates about this tool. No spam. Unsubscribe anytime.")
+        st.caption("Occasional email updates about this tool. No spam. Unsubscribe anytime.")
         if st.button("Let's go →", type="primary", use_container_width=True):
             if not email or "@" not in email:
                 st.error("Please enter a valid email address.")
@@ -948,10 +930,7 @@ elif step == 1:
                     st.session_state.step = 99; st.rerun()
                 else:
                     if not known:
-                        if agree:
-                            write_to_sheet(name, email, company, "—", current_followers, consent=True)
-                        else:
-                            write_to_sheet("—", "—", "—", "anonymous", 0, consent=False)
+                        write_to_sheet(name, email, company, "—", current_followers, consent=agree)
                     st.session_state.update({"email":email,"name":name,"company":company,
                                              "current_followers":current_followers,"step":2})
                     st.rerun()
@@ -966,7 +945,7 @@ elif step == 2:
     with col1:
         sector = st.selectbox("Your sector", list(SECTORS.keys()))
         bench = SECTORS[sector]
-        st.markdown(f'<div class="bench-card"><strong>Benchmarks for {sector}</strong><br>Average engagement rate: <strong>{bench["engagement"]}%</strong><br>Recommended posting frequency: <strong>{bench["frequency"]}</strong></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="bench-card"><strong>Benchmarks for {sector}</strong><br>Average engagement rate: <strong>{bench["engagement"]}%</strong><br>Recommended posting frequency: <strong>{bench["frequency"]}</strong><br><span style="font-size:12px;color:#777;">Sources: <a href="https://blog.hootsuite.com/average-engagement-rate/" target="_blank">Hootsuite (2025)</a> · posting frequency: <a href="https://buffer.com/resources/how-often-to-post-on-linkedin/" target="_blank">Buffer</a> &amp; <a href="https://redactai.io/blog/linkedin-how-often-post" target="_blank">RedactAI</a></span></div>', unsafe_allow_html=True)
         c1,c2 = st.columns(2)
         with c1:
             if st.button("Back", use_container_width=True): st.session_state.step=1; st.rerun()
@@ -1129,9 +1108,10 @@ elif step == 7:
     evb_sign = "+" if evb >= 0 else ""
     evb_label = f"{'Above' if evb>=0 else 'Below'} benchmark by {abs(evb):.1f}pp ({evb_sign}{evb_rel:.0f}%)"
     freq_ok = ppw >= float(bench["frequency"].split("x")[0].split("-")[0])
-    best_day = df_posts.groupby("Day")["Engagement_pct"].mean().idxmax() if len(df_posts) else "—"
+    best_day = df_posts.groupby("Day")["Engagement_pct"].apply(agg_fn).idxmax() if len(df_posts) else "—"
 
-    st.markdown(f'<div class="welcome-msg">{"Here\'s your analysis for " + company + "." if company else "Here\'s your analysis."}</div>', unsafe_allow_html=True)
+    _welcome = f"Here's your analysis for {company}." if company else "Here's your analysis."
+    st.markdown(f'<div class="welcome-msg">{_welcome}</div>', unsafe_allow_html=True)
     st.markdown(f"**{d1} – {d2}** · {sector} · {len(df_posts)} posts analysed")
     st.markdown("---")
 
@@ -1608,7 +1588,10 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
                 if draft_post:
                     with st.spinner("Reviewing your draft..."):
                         try:
-                            feedback = ai_draft_feedback(draft_post,sector,bench_eng,api_key3)
+                            top_for_fb = json.dumps(df_posts[df_posts["Engagement_pct"]>0]
+                                .nlargest(3,"Engagement_pct")[["Title_short","Engagement_pct","Weergaven"]]
+                                .round(2).to_dict("records"))
+                            feedback = ai_draft_feedback(draft_post,sector,bench_eng,api_key3,top_posts=top_for_fb)
                             st.session_state.draft_feedback = feedback
                         except Exception as e:
                             st.error(f"Something went wrong: {e}")
@@ -1764,25 +1747,25 @@ Then add the separator ---ACTIONS--- and list 3 concrete next steps (numbered). 
                     compare_stats=st.session_state.get("compare_stats"),
                 )
                 fname = f"linkedin-report-{company.lower().replace(' ','-') if company else 'report'}-{datetime.now().strftime('%Y%m%d')}.pdf"
-                st.download_button(
-                    label="⬇ Download PDF",
-                    data=pdf_buf,
-                    file_name=fname,
-                    mime="application/pdf",
-                    on_click=None,
-                )
-                st.session_state["pdf_just_downloaded"] = True
+                st.session_state["pdf_bytes"] = pdf_buf.getvalue()
+                st.session_state["pdf_fname"] = fname
             except Exception as e:
                 st.error(f"Could not generate PDF: {e}")
 
-    if st.session_state.get("pdf_just_downloaded"):
+    if st.session_state.get("pdf_bytes"):
         st.success("🎉 Your report is ready. Go make your colleagues jealous.")
-        st.session_state["pdf_just_downloaded"] = False
+        st.download_button(
+            label="⬇ Download PDF",
+            data=st.session_state["pdf_bytes"],
+            file_name=st.session_state["pdf_fname"],
+            mime="application/pdf",
+        )
 
     # ── CTA ───────────────────────────────────────────────────────────────────
     st.markdown(f'<div class="cta-banner"><div class="cta-text"><strong>Rather brainstorm with a human?</strong>Connect with Bas Oudshoorn — LinkedIn strategist & Marketing Communications Manager at Leiden Bio Science Park.</div><a href="{BAS_URL}" target="_blank" class="cta-btn">Connect on LinkedIn</a></div>', unsafe_allow_html=True)
     st.markdown("---")
     if st.button("Start over with new data"):
-        for k in ["df_posts","df_stats","fol_growth","fol_sheets","vis_data","vis_sheets","df_comp","diagnosis","audit","draft_feedback"]:
+        for k in ["df_posts","df_stats","fol_growth","fol_sheets","vis_data","vis_sheets","df_comp","diagnosis",
+                  "draft_feedback","pdf_bytes","pdf_fname","compare_stats","compare_interpretation"]:
             if k in st.session_state: del st.session_state[k]
         st.session_state.step = 1; st.rerun()
